@@ -4677,10 +4677,8 @@ try {
   }
 } catch(e){}
 if (typeof renderAll==='function'){ try { renderAll(); } catch(e){} }
-if (typeof renderReceivedShares==='function'){ try { renderReceivedShares(); } catch(e){} }
+if (typeof renderReceivedShares==='function'){ try { renderReceivedShares(); } catch(e){}
 try { attachOwnerListeners(); } catch(e){} }
-}
-
 function attachSharedListener(sp){
   if (!_authed()) return; var db=_db(); if (!db) return;
   try {
