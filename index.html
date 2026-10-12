@@ -4332,7 +4332,7 @@ if (ad.profiles && ad.profiles.length){
 <!-- ================================================================= -->
 <!-- MODULE 2: SYNC — Firebase + Merge + Tombstones + Shares + Dedupe  -->
 <!-- ================================================================= -->
-<script>
+<>
 (function(){
 'use strict';
 if (window.__PK_SYNC_V2) return;
@@ -4834,30 +4834,7 @@ setTimeout(function() {
     if (typeof firebase === 'undefined' || !firebase.auth) return;
     firebase.auth().onAuthStateChanged(function(user) {
       if (!user) {
-        console.log('[AUTH-LOGOUT] Auth null detected — detaching listeners');
-        try { detachAll(); } catch(e) {}
-      }
-    });
-  } catch(e) {}
-}, 2000);
-// ✅ NAYA: Periodic owner-listener re-attach + push-back
-// Kyun: createShare ke baad, ya app boot ke baad, owner-side listeners ko ensure karo
-setInterval(function(){
-  try {
-    if (!_authed()) return;
-    var sess = _sess();
-    if (!sess || !sess.username) return;
-    if (window.__PK_EDIT_MODE) return;
-    var shares = (window.appData && window.appData.myShares) || [];
-    if (!shares.length) return;
-    // Attach any missing owner listeners
-    attachOwnerListeners();
-  } catch(e){}
-}, 5000);
 
-console.log('[SYNC-V2] ✅ Ready — v2.1 with myShares tombstones');
-})();
-</script>
 <!-- ================================================================= -->
 <!-- MODULE 3: FEATURES — Phase 3A: Foundation (PK3 namespace)         -->
 <!-- Shared helpers — existing 6 patches untouched                     -->
