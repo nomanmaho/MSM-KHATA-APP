@@ -10940,5 +10940,99 @@ if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles
   console.log('[SHARE-BAR] ✅ Ready');
 })();
 </script>
+<!-- ============ PAUSE-PERSIST-FIX ============ -->
+<script>
+(function(){
+  if (window.__PK_PAUSE_FIX) return;
+  window.__PK_PAUSE_FIX = true;
+  console.log('[PAUSE-FIX] Loading...');
+
+  function _safeKey(u){
+    try { return (typeof safeUserKey === 'function') ? safeUserKey(u) : String(u).toLowerCase().replace(/[.#$/\[\]]/g,'_'); }
+    catch(e){ return String(u); }
+  }
+
+  // Patch: after sync, override __active based on __recipientPaused
+  function patchSyncReceivedShares(){
+    if (typeof window.syncReceivedShares !== 'function') return false;
+    if (window.__pkSyncPausedHooked) return true;
+    window.__pkSyncPausedHooked = true;
+
+    var _origSync = window.syncReceivedShares;
+    window.syncReceivedShares = async function(shares){
+      // 1) Original sync chalao (list build + attach listeners)
+      try { await _origSync.apply(this, arguments); } catch(e){}
+
+      // 2) Ab har share ka __recipientPaused Firebase se padho
+      try {
+        if (!window.appData || !Array.isArray(window.appData.sharedProfiles)) return;
+        if (typeof firebase === 'undefined' || !firebase.database) return;
+        var db = firebase.database();
+
+        for (var i = 0; i < shares.length; i++){
+          var s = shares[i];
+          if (!s || !s.shareId) continue;
+
+          var localSp = window.appData.sharedProfiles.find(function(x){
+            return String(x.__shareId) === String(s.shareId);
+          });
+          if (!localSp) continue;
+
+          try {
+            var snap = await db.ref('pak_khata_shared_profiles/' +
+              _safeKey(s.ownerUsername) + '/' + s.profileId).once('value');
+            var node = snap.val() || {};
+
+            var pausedByMe    = (node.__recipientPaused === true);
+            var pausedByOwner = (s.__enabled === false);
+            var shouldBeActive = !(pausedByMe || pausedByOwner);
+
+            localSp.__active = shouldBeActive;
+          } catch(e){}
+        }
+
+        // 3) Save
+        try { localStorage.setItem('pak_khata_pro_v3', JSON.stringify(window.appData)); } catch(e){}
+
+        // 4) Agar abhi jo shared active hai woh ab paused ho gaya → own pe switch
+        var activeSharedId = window.appData.__activeSharedId;
+        if (activeSharedId){
+          var activeSp = window.appData.sharedProfiles.find(function(x){
+            return String(x.__shareId) === String(activeSharedId) ||
+                   String(x.id) === String(activeSharedId);
+          });
+          if (activeSp && activeSp.__active === false &&
+              window.appData.profiles && window.appData.profiles.length){
+            window.appData.activeProfileId = window.appData.profiles[0].id;
+            delete window.appData.__activeSharedId;
+            try { localStorage.setItem('pak_khata_pro_v3', JSON.stringify(window.appData)); } catch(e){}
+            if (window.PakKhata && PakKhata.ActiveProfile && PakKhata.ActiveProfile.persist){
+              try { PakKhata.ActiveProfile.persist(); } catch(e){}
+            }
+          }
+        }
+
+        if (typeof renderAll === 'function'){ try { renderAll(); } catch(e){} }
+        if (typeof renderReceivedShares === 'function'){ try { renderReceivedShares(); } catch(e){} }
+      } catch(e){ console.warn('[PAUSE-FIX] err:', e); }
+    };
+
+    console.log('[PAUSE-FIX] ✅ syncReceivedShares patched');
+    return true;
+  }
+
+  // Try patching now; if not ready, retry
+  if (!patchSyncReceivedShares()){
+    var tries = 0;
+    var iv = setInterval(function(){
+      tries++;
+      if (patchSyncReceivedShares() || tries > 20) clearInterval(iv);
+    }, 500);
+  }
+
+  console.log('[PAUSE-FIX] ✅ Ready');
+})();
+</script>
+<!-- ============ PAUSE-PERSIST-FIX END ============ -->
 </body>
 </html>
