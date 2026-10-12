@@ -11307,6 +11307,127 @@ if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles
 })();
 </script>
 <!-- ============ TOMBSTONE SIZE CAP END ============ -->
+<!-- ============ ACTIVE PROFILE VALIDATION FIX ============ -->
+<script>
+(function(){
+  if (window.__PK_ACTIVE_PROFILE_FIX) return;
+  window.__PK_ACTIVE_PROFILE_FIX = true;
+  console.log('[PROFILE-FIX] Loading...');
+
+  function validateActiveId(ad){
+    if (!ad) return false;
+    var activeId = String(ad.activeProfileId || '');
+    var sharedId = String(ad.__activeSharedId || '');
+
+    var ownMatch = (ad.profiles || []).some(function(p){
+      return String(p.id) === activeId;
+    });
+    if (ownMatch) return true;
+
+    var sharedMatch = (ad.sharedProfiles || []).some(function(sp){
+      return String(sp.id) === activeId;
+    });
+    if (sharedMatch) return true;
+
+    if (sharedId){
+      var sharedMatch2 = (ad.sharedProfiles || []).some(function(sp){
+        return String(sp.__shareId) === sharedId || String(sp.id) === sharedId;
+      });
+      if (sharedMatch2) return true;
+    }
+    return false;
+  }
+
+  function fixStaleId(ad){
+    if (!ad) return false;
+    var activeId = String(ad.activeProfileId || '');
+    if (!activeId) return false;
+    if (validateActiveId(ad)) return false;
+
+    var fallback = (ad.profiles && ad.profiles.length) ? ad.profiles[0] : null;
+    if (fallback){
+      ad.activeProfileId = fallback.id;
+      delete ad.__activeSharedId;
+      console.log('[PROFILE-FIX] Fixed stale ID: ' + activeId + ' → ' + fallback.id);
+      return true;
+    }
+
+    var sharedFb = (ad.sharedProfiles && ad.sharedProfiles.length) ? ad.sharedProfiles[0] : null;
+    if (sharedFb){
+      ad.activeProfileId = sharedFb.id;
+      ad.__activeSharedId = String(sharedFb.__shareId || sharedFb.id);
+      console.log('[PROFILE-FIX] Fixed stale ID → shared: ' + sharedFb.id);
+      return true;
+    }
+    return false;
+  }
+
+  function persistFix(){
+    try { localStorage.setItem('pk_khata_pro_v3', JSON.stringify(window.appData)); } catch(e){}
+    if (window.PakKhata && PakKhata.ActiveProfile && PakKhata.ActiveProfile.persist){
+      try { PakKhata.ActiveProfile.persist(); } catch(e){}
+    }
+  }
+
+  function hookPreserve(){
+    if (typeof window.pkPreserveActive !== 'function') return false;
+    if (window.__pkProfileFixHooked) return true;
+    window.__pkProfileFixHooked = true;
+
+    var _orig = window.pkPreserveActive;
+    window.pkPreserveActive = function(oldAppData, newAppData){
+      var r = _orig.apply(this, arguments);
+      try { if (fixStaleId(r)) persistFix(); }
+      catch(e){ console.warn('[PROFILE-FIX] validate err:', e); }
+      return r;
+    };
+    console.log('[PROFILE-FIX] ✅ pkPreserveActive wrapped');
+    return true;
+  }
+
+  if (!hookPreserve()){
+    var tries = 0;
+    var iv = setInterval(function(){
+      tries++;
+      if (hookPreserve() || tries > 40) clearInterval(iv);
+    }, 400);
+  }
+
+  setTimeout(function(){
+    try {
+      if (fixStaleId(window.appData)){
+        persistFix();
+        if (typeof renderAll === 'function') renderAll();
+        console.log('[PROFILE-FIX] ✅ Boot cleanup done');
+      }
+    } catch(e){}
+  }, 4000);
+
+  window.pk_fixStaleProfile = function(){
+    if (fixStaleId(window.appData)){
+      persistFix();
+      if (typeof renderAll === 'function') renderAll();
+      return 'Fixed ✅';
+    }
+    return 'No fix needed — activeProfileId is valid';
+  };
+
+  window.pk_checkStale = function(){
+    var ad = window.appData;
+    if (!ad) return { error: 'no appData' };
+    return {
+      activeProfileId: String(ad.activeProfileId || ''),
+      __activeSharedId: String(ad.__activeSharedId || ''),
+      ownIds: (ad.profiles || []).map(function(p){ return String(p.id); }),
+      sharedIds: (ad.sharedProfiles || []).map(function(sp){ return String(sp.id); }),
+      isValid: validateActiveId(ad)
+    };
+  };
+
+  console.log('[PROFILE-FIX] ✅ Ready');
+})();
+</script>
+<!-- ============ ACTIVE PROFILE VALIDATION FIX END ============ -->
 <!-- ============ Debug Console Menu Tile ============ -->
 <script>
 (function(){
