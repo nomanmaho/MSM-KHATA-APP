@@ -559,7 +559,7 @@ body.is-offline #offlineBanner{display:block}
       toggle();
     };
     document.body.appendChild(dot);
-    dot.style.display = showBtn ? 'none' : 'block';
+    dot.style.display = 'none';
 
     var pnl = document.createElement('div');
     pnl.id = 'pkDbgPnl';
@@ -721,7 +721,7 @@ body.is-offline #offlineBanner{display:block}
 
   window.PK_DEBUG = {
     logs: function(){ return logs; },
-    show: function(){ open = true; toggle(); },
+    show: function(){ var p = document.getElementById('pkDbgPnl'); if (p){ p.style.display = 'block'; open = true; render(); } },
     clear: function(){ logs = []; render(); },
     capture: function(on){ captureEnabled = !!on; savePrefs(); updateBtnColor(); },
     test: runTest,
