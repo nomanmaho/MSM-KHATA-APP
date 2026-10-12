@@ -8524,12 +8524,6 @@ ShareToggle.toggleSent = function(idx, on){
       var db = firebase.database();
       var recKey = typeof safeUserKey === 'function' ? safeUserKey(s.recipientUsername) : s.recipientUsername;
       db.ref('pak_khata_shares/' + recKey + '/' + s.shareId).update({ __enabled: !!on, __updatedAt: Date.now() });
-      // ✅ TOMBSTONE — reload par wapas na aaye
-try {
-  var tomb = JSON.parse(localStorage.getItem('pk_removed_share_ids') || '[]');
-  if (tomb.indexOf(String(shareId)) === -1){ tomb.push(String(shareId)); localStorage.setItem('pk_removed_share_ids', JSON.stringify(tomb)); }
-  console.log('[SHARE-BAR] Tombstoned:', shareId);
-} catch(e){}
     }
   } catch(e){}
   ShareToggle.renderSent();
@@ -10709,9 +10703,15 @@ console.log('██████████████████████�
         try { PakKhata.ActiveProfile.persist(); } catch(err){}
       }
       if (typeof toast === 'function') toast('⏸️ Shared profile paused', 'warn');
-    } else {
-      if (typeof toast === 'function') toast(on ? '✅ Shared profile active' : '⏸️ Paused', on ? 'ok' : 'warn');
-    }
+    } else if (on) {
+  window.appData.activeProfileId = cp.id;
+  window.appData.__activeSharedId = String(cp.__shareId || cp.id);
+  try { localStorage.setItem(DB_KEY, JSON.stringify(window.appData)); } catch(err){}
+  if (window.PakKhata && PakKhata.ActiveProfile && PakKhata.ActiveProfile.persist){
+    try { PakKhata.ActiveProfile.persist(); } catch(err){}
+  }
+  if (typeof toast === 'function') toast('✅ Shared profile active', 'ok');
+ }
     // Also sync to Firebase share record
     try {
   if (window.firebase && firebase.database){
@@ -10750,6 +10750,15 @@ try {
     }
   }
 } catch(e){ console.warn('[SHARE-BAR] Firebase err:', e); }
+// ✅ Tombstone — reload par wapas na aaye
+try {
+  var _tomb = JSON.parse(localStorage.getItem('pk_removed_share_ids') || '[]');
+  var _sid = String(shareId || '');
+  if (_sid && _sid !== 'undefined' && _tomb.indexOf(_sid) === -1){
+    _tomb.push(_sid);
+    localStorage.setItem('pk_removed_share_ids', JSON.stringify(_tomb));
+  }
+} catch(e){}
 if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles = [];
     window.appData.sharedProfiles = window.appData.sharedProfiles.filter(function(x){
       return String(x.__shareId) !== String(shareId);
@@ -10787,54 +10796,5 @@ if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles
   console.log('[SHARE-BAR] ✅ Ready');
 })();
 </script>
-    <!-- 🧹 TEMPORARY CLEANUP BUTTON — baad mein hata dena -->
-<script>
-(function(){
-  if (window.__pkWipeBtn) return;
-  window.__pkWipeBtn = true;
-  
-  function createBtn(){
-    if (document.getElementById('pkWipeSharesBtn')) return;
-    var btn = document.createElement('button');
-    btn.id = 'pkWipeSharesBtn';
-    btn.textContent = '🧹 Wipe All Shared Profiles';
-    btn.style.cssText = 'position:fixed;bottom:120px;left:50%;transform:translateX(-50%);z-index:99999;background:#dc2626;color:#fff;border:none;padding:14px 20px;border-radius:30px;font-size:13px;font-weight:800;box-shadow:0 6px 20px rgba(220,38,38,.4);cursor:pointer;';
-    btn.onclick = async function(){
-      if (!confirm('Saare shared profiles delete karein? (Yeh permanent hai)')) return;
-      
-      var s = (typeof getSession === 'function') ? getSession() : null;
-      if (!s || !s.username){ alert('Not logged in'); return; }
-      
-      var k = encodeURIComponent(s.username).replace(/[.#$/\[\]]/g, '_');
-      var url = 'https://msm-khata-app-default-rtdb.asia-southeast1.firebasedatabase.app/pak_khata_shares/' + k + '.json';
-      
-      btn.textContent = '⏳ Deleting...';
-      btn.disabled = true;
-      
-      try {
-        var r = await fetch(url, { method: 'DELETE' });
-        console.log('Firebase delete:', r.status);
-      } catch(e){ console.warn('Firebase err:', e); }
-      
-      var d = JSON.parse(localStorage.getItem('pak_khata_pro_v3'));
-      d.sharedProfiles = [];
-      delete d.__activeSharedId;
-      if (d.profiles && d.profiles.length) d.activeProfileId = d.profiles[0].id;
-      localStorage.setItem('pak_khata_pro_v3', JSON.stringify(d));
-      
-      btn.textContent = '✅ Done! Reloading...';
-      setTimeout(function(){ location.reload(); }, 1500);
-    };
-    document.body.appendChild(btn);
-  }
-  
-  if (document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', function(){ setTimeout(createBtn, 2000); });
-  } else {
-    setTimeout(createBtn, 2000);
-  }
-})();
-</script>
-
 </body>
 </html>
