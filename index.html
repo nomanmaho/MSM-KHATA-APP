@@ -456,7 +456,6 @@ body.is-offline #offlineBanner{display:block}
 </style>
 </head>
 <body onclick="closeLangMenuOnOutside(event)">
-<!-- ============ 🐛 DEBUG CONSOLE (temporary) ============ -->
 <script>
 (function(){
   if (window.__PK_DEBUG_CONSOLE) return;
@@ -465,13 +464,30 @@ body.is-offline #offlineBanner{display:block}
   var logs = [];
   var MAX = 300;
   var open = false;
+  var captureEnabled = true;
+  var showBtn = true;
+  var autoOpenErr = false;
+
+  try {
+    var p = JSON.parse(localStorage.getItem('pk_debug_prefs') || '{}');
+    if (typeof p.capture === 'boolean') captureEnabled = p.capture;
+    if (typeof p.showBtn === 'boolean') showBtn = p.showBtn;
+    if (typeof p.autoOpenErr === 'boolean') autoOpenErr = p.autoOpenErr;
+  } catch(e){}
+
+  function savePrefs(){
+    try { localStorage.setItem('pk_debug_prefs', JSON.stringify({
+      capture: captureEnabled, showBtn: showBtn, autoOpenErr: autoOpenErr
+    })); } catch(e){}
+  }
 
   function pad(n){ return n < 10 ? '0'+n : ''+n; }
   function now(){ var d = new Date(); return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds()); }
   function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 
-  function add(kind, args){
+  function add(kind, args, force){
     try {
+      if (!force && !captureEnabled) return;
       var parts = [];
       for (var i=0;i<args.length;i++){
         var a = args[i];
@@ -482,10 +498,14 @@ body.is-offline #offlineBanner{display:block}
       logs.push({ t: now(), k: kind, m: parts.join(' ') });
       if (logs.length > MAX) logs.shift();
       render();
+      if (kind === 'err' && autoOpenErr && !open){
+        open = true;
+        var p2 = document.getElementById('pkDbgPnl');
+        if (p2) p2.style.display = 'block';
+      }
     } catch(e){}
   }
 
-  // Capture errors
   window.addEventListener('error', function(e){
     var msg = (e && e.message) || 'Unknown error';
     var src = (e && e.filename) ? ' @ ' + e.filename + ':' + (e.lineno||0) + ':' + (e.colno||0) : '';
@@ -496,49 +516,188 @@ body.is-offline #offlineBanner{display:block}
     add('err', ['Unhandled Promise: ' + (r && (r.message || r.stack) || String(r))]);
   });
 
-  // Patch console
   var _log = console.log, _warn = console.warn, _err = console.error, _info = console.info;
   console.log = function(){ add('log', arguments); try{ _log.apply(console, arguments); }catch(e){} };
   console.warn = function(){ add('warn', arguments); try{ _warn.apply(console, arguments); }catch(e){} };
   console.error = function(){ add('err', arguments); try{ _err.apply(console, arguments); }catch(e){} };
   console.info = function(){ add('log', arguments); try{ _info.apply(console, arguments); }catch(e){} };
 
-  // UI
+  function buildToggle(id, labelText){
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #334155;">' +
+      '<span style="font-size:11px;color:#e5e7eb;">' + labelText + '</span>' +
+      '<label style="position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;">' +
+        '<input type="checkbox" id="' + id + '" style="opacity:0;width:0;height:0;position:absolute;">' +
+        '<span class="pkDbgSlider" style="position:absolute;top:0;left:0;right:0;bottom:0;background:#475569;border-radius:22px;transition:.2s;cursor:pointer;"></span>' +
+        '<span class="pkDbgKnob" style="position:absolute;height:16px;width:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s;pointer-events:none;"></span>' +
+      '</label>' +
+    '</div>';
+  }
+
   function buildUI(){
     if (document.getElementById('pkDbgBtn')) return;
+
     var btn = document.createElement('div');
     btn.id = 'pkDbgBtn';
     btn.textContent = '🐛';
-    btn.style.cssText = 'position:fixed;top:70px;right:6px;z-index:99999;background:#dc2626;color:#fff;width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 4px 12px rgba(0,0,0,.35);cursor:pointer;user-select:none;';
+    btn.style.cssText = 'position:fixed;top:70px;right:6px;z-index:99999;background:#dc2626;color:#fff;width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 4px 12px rgba(0,0,0,.35);cursor:pointer;user-select:none;transition:.2s;';
     btn.onclick = toggle;
     document.body.appendChild(btn);
+    updateBtnColor();
+
+    var dot = document.createElement('div');
+    dot.id = 'pkDbgHiddenDot';
+    dot.title = 'Debug Console kholo';
+    dot.style.cssText = 'position:fixed;bottom:calc(95px + env(safe-area-inset-bottom,0px));right:3px;width:14px;height:14px;border-radius:50%;background:#dc2626;opacity:.4;z-index:99999;cursor:pointer;border:1px solid rgba(255,255,255,.5);';
+    dot.onclick = function(){
+      showBtn = true;
+      var b = document.getElementById('pkDbgBtn'); if (b) b.style.display = 'flex';
+      var chk = document.getElementById('pkDbgOptShowBtn'); if (chk) chk.checked = true;
+      var sl = document.getElementById('pkDbgOptShowBtn');
+      if (sl) applyToggleVisual(sl.parentNode, true);
+      dot.style.display = 'none';
+      savePrefs();
+      toggle();
+    };
+    document.body.appendChild(dot);
+    dot.style.display = showBtn ? 'none' : 'block';
 
     var pnl = document.createElement('div');
     pnl.id = 'pkDbgPnl';
     pnl.style.cssText = 'display:none;position:fixed;inset:0;z-index:99998;background:#0f172a;color:#e5e7eb;font-family:monospace;font-size:11px;';
     pnl.innerHTML =
-      '<div style="position:sticky;top:0;background:#1e293b;padding:8px;display:flex;gap:6px;align-items:center;border-bottom:1px solid #334155;">' +
-        '<b style="flex:1;font-size:12px;">🐛 Console</b>' +
-        '<button id="pkDbgCopy" style="background:#2563eb;color:#fff;border:none;padding:6px 10px;border-radius:6px;font-size:11px;font-weight:800;">📋 Copy</button>' +
-        '<button id="pkDbgClr" style="background:#dc2626;color:#fff;border:none;padding:6px 10px;border-radius:6px;font-size:11px;font-weight:800;">🗑️ Clear</button>' +
-        '<button id="pkDbgClose" style="background:#334155;color:#fff;border:none;padding:6px 10px;border-radius:6px;font-size:11px;font-weight:800;">✕</button>' +
+      '<div style="position:sticky;top:0;background:#1e293b;padding:8px;display:flex;gap:5px;align-items:center;border-bottom:1px solid #334155;flex-wrap:wrap;">' +
+        '<b style="font-size:12px;">🐛 Console</b>' +
+        '<span id="pkDbgState" style="font-size:10px;font-weight:800;">● ON</span>' +
+        '<div style="flex:1;min-width:6px;"></div>' +
+        '<button id="pkDbgTest" style="background:#7c3aed;color:#fff;border:none;padding:6px 9px;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;">🧪 Test</button>' +
+        '<button id="pkDbgSet" style="background:#475569;color:#fff;border:none;padding:6px 9px;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;">⚙️</button>' +
+        '<button id="pkDbgCopy" style="background:#2563eb;color:#fff;border:none;padding:6px 9px;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;">📋</button>' +
+        '<button id="pkDbgClr" style="background:#dc2626;color:#fff;border:none;padding:6px 9px;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;">🗑️</button>' +
+        '<button id="pkDbgClose" style="background:#334155;color:#fff;border:none;padding:6px 9px;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;">✕</button>' +
       '</div>' +
-      '<div id="pkDbgList" style="padding:6px;overflow-y:auto;height:calc(100% - 45px);-webkit-overflow-scrolling:touch;"></div>';
+      '<div id="pkDbgSettings" style="display:none;background:#1e293b;padding:4px 12px 10px 12px;border-bottom:1px solid #334155;">' +
+        buildToggle('pkDbgOptCapture', '📥 Capture Logs (On/Off)') +
+        buildToggle('pkDbgOptShowBtn', '🐛 Show Bug Button') +
+        buildToggle('pkDbgOptAutoOpen', '⚠️ Auto-open on Error') +
+        '<div style="font-size:9.5px;color:#94a3b8;padding:8px 0 0 0;line-height:1.5;border-bottom:none;">' +
+          '💡 Button hide karne par niche-daaye corner pe chhota laal dot rahega — usse wapas ON kar sakte ho.' +
+        '</div>' +
+      '</div>' +
+      '<div id="pkDbgList" style="padding:6px;overflow-y:auto;-webkit-overflow-scrolling:touch;"></div>';
     document.body.appendChild(pnl);
+
+    var setEl = document.getElementById('pkDbgSettings');
+    var listEl = document.getElementById('pkDbgList');
+
+    function updateListHeight(){
+      var offset = setEl.style.display === 'none' ? 0 : setEl.offsetHeight;
+      listEl.style.height = 'calc(100% - ' + (48 + offset) + 'px)';
+    }
 
     document.getElementById('pkDbgClose').onclick = toggle;
     document.getElementById('pkDbgClr').onclick = function(){ logs = []; render(); };
+    document.getElementById('pkDbgTest').onclick = runTest;
     document.getElementById('pkDbgCopy').onclick = function(){
+      if (!logs.length){ alert('No logs'); return; }
       var txt = logs.map(function(l){ return '['+l.t+'] '+l.k.toUpperCase()+': '+l.m; }).join('\n');
-      try { navigator.clipboard.writeText(txt).then(function(){ alert('✅ Copied ('+logs.length+' lines)'); }).catch(function(){ alert('Copy failed'); }); }
-      catch(e){ alert('Copy failed'); }
+      try {
+        if (navigator.clipboard){
+          navigator.clipboard.writeText(txt).then(function(){ alert('✅ Copied (' + logs.length + ' lines)'); }).catch(function(){ fallbackCopy(txt); });
+        } else fallbackCopy(txt);
+      } catch(e){ fallbackCopy(txt); }
     };
+    document.getElementById('pkDbgSet').onclick = function(){
+      setEl.style.display = setEl.style.display === 'none' ? 'block' : 'none';
+      updateListHeight();
+    };
+
+    var captEl = document.getElementById('pkDbgOptCapture');
+    var showEl = document.getElementById('pkDbgOptShowBtn');
+    var autoEl = document.getElementById('pkDbgOptAutoOpen');
+
+    captEl.checked = captureEnabled;
+    showEl.checked = showBtn;
+    autoEl.checked = autoOpenErr;
+
+    applyToggleVisual(captEl.parentNode, captureEnabled);
+    applyToggleVisual(showEl.parentNode, showBtn);
+    applyToggleVisual(autoEl.parentNode, autoOpenErr);
+
+    captEl.onchange = function(){
+      captureEnabled = captEl.checked; savePrefs();
+      applyToggleVisual(captEl.parentNode, captureEnabled);
+      updateBtnColor();
+      add('log', ['⚙️ Capture: ' + (captureEnabled ? 'ON' : 'OFF')], true);
+    };
+    showEl.onchange = function(){
+      showBtn = showEl.checked; savePrefs();
+      applyToggleVisual(showEl.parentNode, showBtn);
+      var b = document.getElementById('pkDbgBtn');
+      if (b) b.style.display = showBtn ? 'flex' : 'none';
+      var d = document.getElementById('pkDbgHiddenDot');
+      if (d) d.style.display = showBtn ? 'none' : 'block';
+    };
+    autoEl.onchange = function(){
+      autoOpenErr = autoEl.checked; savePrefs();
+      applyToggleVisual(autoEl.parentNode, autoOpenErr);
+    };
+
+    updateListHeight();
+  }
+
+  function applyToggleVisual(labelEl, val){
+    if (!labelEl) return;
+    var sl = labelEl.querySelector('.pkDbgSlider');
+    var kn = labelEl.querySelector('.pkDbgKnob');
+    if (sl) sl.style.background = val ? '#10b981' : '#475569';
+    if (kn) kn.style.left = val ? '21px' : '3px';
+  }
+
+  function fallbackCopy(txt){
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = txt; ta.style.cssText = 'position:fixed;top:-1000px;opacity:0;';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+      alert('✅ Copied (' + logs.length + ' lines)');
+    } catch(e){ alert('Copy failed — screenshots le lo'); }
+  }
+
+  function updateBtnColor(){
+    var b = document.getElementById('pkDbgBtn');
+    if (!b) return;
+    b.style.background = captureEnabled ? '#dc2626' : '#6b7280';
+    b.style.opacity = captureEnabled ? '1' : '0.55';
+  }
+
+  function runTest(){
+    add('log', ['🧪 Test log — console working ✓'], true);
+    add('warn', ['🧪 Test warning — aise warnings dikhengi'], true);
+    add('err', ['🧪 Test error — aise errors dikhenge (fake hai, real nahi)'], true);
+    add('log', ['🧪 Time: ' + new Date().toLocaleString()], true);
+    add('log', ['🧪 Sample object:', { app: 'PakKhata', version: '9.8.7', test: true, ts: Date.now() }], true);
+    try {
+      var cp = (typeof getCurrentProfile === 'function') ? getCurrentProfile() : null;
+      if (cp){
+        add('log', ['🧪 Profile: ' + cp.name + ' | Entries: ' + (cp.transactions||[]).length + ' | Shared: ' + (cp.__shared ? 'YES' : 'NO')], true);
+      } else {
+        add('log', ['🧪 getCurrentProfile() = null'], true);
+      }
+    } catch(e){ add('err', ['getCurrentProfile err: ' + e.message], true); }
+    add('log', ['🧪 ✅ Test complete — sab dikha to console 100% chal raha hai'], true);
   }
 
   function render(){
     var el = document.getElementById('pkDbgList');
     if (!el) return;
-    if (!logs.length){ el.innerHTML = '<div style="color:#64748b;padding:20px;text-align:center;">No logs yet</div>'; return; }
+    var stateEl = document.getElementById('pkDbgState');
+    if (stateEl){
+      stateEl.textContent = captureEnabled ? '● ON' : '● OFF';
+      stateEl.style.color = captureEnabled ? '#10b981' : '#ef4444';
+    }
+    if (!logs.length){
+      el.innerHTML = '<div style="color:#64748b;padding:20px;text-align:center;">No logs yet<br><span style="font-size:10px;">🧪 Test button dabao verify karne ke liye</span></div>';
+      return;
+    }
     el.innerHTML = logs.map(function(l){
       var col = l.k === 'err' ? '#fca5a5' : l.k === 'warn' ? '#fcd34d' : '#94a3b8';
       var bg = l.k === 'err' ? 'rgba(220,38,38,.15)' : l.k === 'warn' ? 'rgba(217,119,6,.15)' : 'transparent';
@@ -560,17 +719,20 @@ body.is-offline #offlineBanner{display:block}
     buildUI();
   }
 
-  // Global access
   window.PK_DEBUG = {
     logs: function(){ return logs; },
     show: function(){ open = true; toggle(); },
-    clear: function(){ logs = []; render(); }
+    clear: function(){ logs = []; render(); },
+    capture: function(on){ captureEnabled = !!on; savePrefs(); updateBtnColor(); },
+    test: runTest,
+    prefs: function(){ return { capture: captureEnabled, showBtn: showBtn, autoOpenErr: autoOpenErr }; }
   };
 
-  add('log', ['🐛 Debug console ready']);
+  add('log', ['🐛 Debug Console v2 ready'], true);
+  add('log', ['🧪 Test button dabao — verify karne ke liye'], true);
+  add('log', ['⚙️ Settings mein Capture On/Off hai'], true);
 })();
 </script>
-<!-- ============ 🐛 DEBUG CONSOLE END ============ -->
 <div id="bootLoader" class="boot-loader show">
   <div class="spin-ring"></div>
   <div style="font-size:12px;font-weight:800;">Pak Khata</div>
