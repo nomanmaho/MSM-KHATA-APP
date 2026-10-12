@@ -501,7 +501,7 @@ body.is-offline #offlineBanner{display:block}
       if (kind === 'err' && autoOpenErr && !open){
         open = true;
         var p2 = document.getElementById('pkDbgPnl');
-        if (p2) p2.style.display = 'block';
+        if (p2) p2.style.display = 'flex';
       }
     } catch(e){}
   }
@@ -726,7 +726,7 @@ function pkDbgEval(){
   function toggle(){
     open = !open;
     var p = document.getElementById('pkDbgPnl');
-    if (p) p.style.display = open ? 'block' : 'none';
+    if (p) p.style.display = open ? 'flex' : 'none';
     if (open) render();
   }
 
@@ -738,7 +738,7 @@ function pkDbgEval(){
 
   window.PK_DEBUG = {
     logs: function(){ return logs; },
-    show: function(){ var p = document.getElementById('pkDbgPnl'); if (p){ p.style.display = 'block'; open = true; render(); } },
+    show: function(){ var p = document.getElementById('pkDbgPnl'); if (p){ p.style.display = 'flex'; open = true; render(); } },
     clear: function(){ logs = []; render(); },
     capture: function(on){ captureEnabled = !!on; savePrefs(); updateBtnColor(); },
     test: runTest,
