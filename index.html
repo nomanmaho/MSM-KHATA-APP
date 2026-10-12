@@ -544,23 +544,6 @@ body.is-offline #offlineBanner{display:block}
     document.body.appendChild(btn);
     updateBtnColor();
 
-    var dot = document.createElement('div');
-    dot.id = 'pkDbgHiddenDot';
-    dot.title = 'Debug Console kholo';
-    dot.style.cssText = 'position:fixed;bottom:calc(95px + env(safe-area-inset-bottom,0px));right:3px;width:14px;height:14px;border-radius:50%;background:#dc2626;opacity:.4;z-index:99999;cursor:pointer;border:1px solid rgba(255,255,255,.5);';
-    dot.onclick = function(){
-      showBtn = true;
-      var b = document.getElementById('pkDbgBtn'); if (b) b.style.display = 'flex';
-      var chk = document.getElementById('pkDbgOptShowBtn'); if (chk) chk.checked = true;
-      var sl = document.getElementById('pkDbgOptShowBtn');
-      if (sl) applyToggleVisual(sl.parentNode, true);
-      dot.style.display = 'none';
-      savePrefs();
-      toggle();
-    };
-    document.body.appendChild(dot);
-    dot.style.display = 'none';
-
     var pnl = document.createElement('div');
     pnl.id = 'pkDbgPnl';
     pnl.style.cssText = 'display:none;position:fixed;inset:0;z-index:99998;background:#0f172a;color:#e5e7eb;font-family:monospace;font-size:11px;';
@@ -580,8 +563,8 @@ body.is-offline #offlineBanner{display:block}
         buildToggle('pkDbgOptShowBtn', '🐛 Show Bug Button') +
         buildToggle('pkDbgOptAutoOpen', '⚠️ Auto-open on Error') +
         '<div style="font-size:9.5px;color:#94a3b8;padding:8px 0 0 0;line-height:1.5;border-bottom:none;">' +
-          '💡 Button hide karne par niche-daaye corner pe chhota laal dot rahega — usse wapas ON kar sakte ho.' +
-        '</div>' +
+  '💡 Button hide karne ke baad Console kholne ke liye: Menu → Debug Console.' +
+'</div>' +
       '</div>' +
       '<div id="pkDbgList" style="padding:6px;overflow-y:auto;-webkit-overflow-scrolling:touch;"></div>';
     document.body.appendChild(pnl);
@@ -630,13 +613,11 @@ body.is-offline #offlineBanner{display:block}
       add('log', ['⚙️ Capture: ' + (captureEnabled ? 'ON' : 'OFF')], true);
     };
     showEl.onchange = function(){
-      showBtn = showEl.checked; savePrefs();
-      applyToggleVisual(showEl.parentNode, showBtn);
-      var b = document.getElementById('pkDbgBtn');
-      if (b) b.style.display = showBtn ? 'flex' : 'none';
-      var d = document.getElementById('pkDbgHiddenDot');
-      if (d) d.style.display = showBtn ? 'none' : 'block';
-    };
+  showBtn = showEl.checked; savePrefs();
+  applyToggleVisual(showEl.parentNode, showBtn);
+  var b = document.getElementById('pkDbgBtn');
+  if (b) b.style.display = showBtn ? 'flex' : 'none';
+};
     autoEl.onchange = function(){
       autoOpenErr = autoEl.checked; savePrefs();
       applyToggleVisual(autoEl.parentNode, autoOpenErr);
