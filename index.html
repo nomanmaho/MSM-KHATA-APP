@@ -2248,6 +2248,10 @@ function initSharesSync(){
 async function syncReceivedShares(shares){
   if (!appData) return;
   if (!Array.isArray(appData.sharedProfiles)) appData.sharedProfiles = [];
+  // ✅ Tombstone filter — pehle se delete kiye hue wapas na aayein
+var __removed = [];
+try { __removed = JSON.parse(localStorage.getItem('pk_removed_share_ids') || '[]').map(String); } catch(e){}
+shares = shares.filter(function(s){ return s && s.shareId && __removed.indexOf(String(s.shareId)) === -1; });
   var db = firebase.database();
   var list = [];
   for (var i=0;i<shares.length;i++){
@@ -3448,6 +3452,12 @@ window.pk2_removeShared = function(idx){
       delete appData.__activeSharedId;
     }
     appData.sharedProfiles.splice(idx, 1);
+    // ✅ Tombstone bhi
+try {
+  var _tomb2 = JSON.parse(localStorage.getItem('pk_removed_share_ids') || '[]');
+  var _sid = String(sp.__shareId || '');
+  if (_sid && _tomb2.indexOf(_sid) === -1){ _tomb2.push(_sid); localStorage.setItem('pk_removed_share_ids', JSON.stringify(_tomb2)); }
+} catch(e){}
     save();
     if (window.PakKhata && PakKhata.ActiveProfile && PakKhata.ActiveProfile.persist) PakKhata.ActiveProfile.persist();
     toast('🗑️ Removed', 'ok');
@@ -8514,6 +8524,12 @@ ShareToggle.toggleSent = function(idx, on){
       var db = firebase.database();
       var recKey = typeof safeUserKey === 'function' ? safeUserKey(s.recipientUsername) : s.recipientUsername;
       db.ref('pak_khata_shares/' + recKey + '/' + s.shareId).update({ __enabled: !!on, __updatedAt: Date.now() });
+      // ✅ TOMBSTONE — reload par wapas na aaye
+try {
+  var tomb = JSON.parse(localStorage.getItem('pk_removed_share_ids') || '[]');
+  if (tomb.indexOf(String(shareId)) === -1){ tomb.push(String(shareId)); localStorage.setItem('pk_removed_share_ids', JSON.stringify(tomb)); }
+  console.log('[SHARE-BAR] Tombstoned:', shareId);
+} catch(e){}
     }
   } catch(e){}
   ShareToggle.renderSent();
