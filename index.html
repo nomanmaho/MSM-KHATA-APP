@@ -547,7 +547,7 @@ body.is-offline #offlineBanner{display:block}
 
     var pnl = document.createElement('div');
     pnl.id = 'pkDbgPnl';
-    pnl.style.cssText = 'display:none;position:fixed;inset:0;z-index:99998;background:#0f172a;color:#e5e7eb;font-family:monospace;font-size:11px;';
+    pnl.style.cssText = 'display:none;position:fixed;inset:0;z-index:99998;background:#0f172a;color:#e5e7eb;font-family:monospace;font-size:11px;flex-direction:column;';
     pnl.innerHTML =
       '<div style="position:sticky;top:0;background:#1e293b;padding:8px;display:flex;gap:5px;align-items:center;border-bottom:1px solid #334155;flex-wrap:wrap;">' +
         '<b style="font-size:12px;">🐛 Console</b>' +
@@ -567,7 +567,11 @@ body.is-offline #offlineBanner{display:block}
   '💡 Button hide karne ke baad Console kholne ke liye: Menu → Debug Console.' +
 '</div>' +
       '</div>' +
-      '<div id="pkDbgList" style="padding:6px;overflow-y:auto;-webkit-overflow-scrolling:touch;"></div>';
+      '<div id="pkDbgList" style="flex:1;padding:6px;overflow-y:auto;-webkit-overflow-scrolling:touch;"></div>' +
+'<div style="flex-shrink:0;background:#1e293b;padding:6px;border-top:1px solid #334155;display:flex;gap:5px;">' +
+  '<input id="pkDbgInput" type="text" placeholder="Command yahan type karo..." style="flex:1;background:#0f172a;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:8px 10px;font-family:monospace;font-size:12px;outline:none;">' +
+  '<button id="pkDbgRun" style="background:#10b981;color:#fff;border:none;padding:8px 14px;border-radius:6px;font-size:11px;font-weight:800;cursor:pointer;">▶ Run</button>' +
+'</div>';
     document.body.appendChild(pnl);
 
     var setEl = document.getElementById('pkDbgSettings');
@@ -591,9 +595,40 @@ body.is-offline #offlineBanner{display:block}
       } catch(e){ fallbackCopy(txt); }
     };
     document.getElementById('pkDbgSet').onclick = function(){
-      setEl.style.display = setEl.style.display === 'none' ? 'block' : 'none';
-      updateListHeight();
-    };
+  setEl.style.display = setEl.style.display === 'none' ? 'block' : 'none';
+  updateListHeight();
+};
+
+// Command input handler — OUTSIDE settings handler
+var inpEl = document.getElementById('pkDbgInput');
+var runBtn = document.getElementById('pkDbgRun');
+if (runBtn) runBtn.onclick = function(){ pkDbgEval(); };
+if (inpEl) inpEl.onkeydown = function(ev){ if (ev.key === 'Enter'){ ev.preventDefault(); pkDbgEval(); } };
+
+function pkDbgEval(){
+  var inp = document.getElementById('pkDbgInput');
+  if (!inp) return;
+  var cmd = inp.value.trim();
+  if (!cmd) return;
+  add('log', ['▶ ' + cmd], true);
+  inp.value = '';
+  try {
+    var result = Function('"use strict";return (' + cmd + ')')();
+    if (result && typeof result.then === 'function'){
+      result.then(function(r){ add('log', ['✅ Result: ' + JSON.stringify(r, null, 2)], true); })
+            .catch(function(e){ add('err', ['❌ ' + (e && e.message || e)], true); });
+    } else {
+      add('log', ['✅ Result: ' + JSON.stringify(result, null, 2)], true);
+    }
+  } catch(e){
+    try {
+      Function('"use strict";' + cmd)();
+      add('log', ['✅ Command executed (no return value)'], true);
+    } catch(e2){
+      add('err', ['❌ ' + (e2 && e2.message || e2)], true);
+    }
+  }
+}
 
     var captEl = document.getElementById('pkDbgOptCapture');
     var showEl = document.getElementById('pkDbgOptShowBtn');
