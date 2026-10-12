@@ -542,6 +542,7 @@ body.is-offline #offlineBanner{display:block}
     btn.style.cssText = 'position:fixed;top:70px;right:6px;z-index:99999;background:#dc2626;color:#fff;width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 4px 12px rgba(0,0,0,.35);cursor:pointer;user-select:none;transition:.2s;';
     btn.onclick = toggle;
     document.body.appendChild(btn);
+    btn.style.display = showBtn ? 'flex' : 'none';
     updateBtnColor();
 
     var pnl = document.createElement('div');
