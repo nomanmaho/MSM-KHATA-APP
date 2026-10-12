@@ -11214,6 +11214,99 @@ if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles
 })();
 </script>
 <!-- ============ PAUSE-PERSIST-FIX END ============ -->
+<!-- ============ TOMBSTONE SIZE CAP ============ -->
+<script>
+(function(){
+  if (window.__PK_TOMBSTONE_CAP) return;
+  window.__PK_TOMBSTONE_CAP = true;
+  console.log('[TOMB-CAP] Loading...');
+
+  var MAX_PER_TYPE = 500;
+  var DB_KEY = 'pak_khata_pro_v3';
+
+  function pruneTombstones(ad){
+    if (!ad || !Array.isArray(ad.profiles)) return false;
+    var pruned = false;
+    ad.profiles.forEach(function(p){
+      if (!p || !p.__tomb) return;
+      ['txns','parties','banks','stockItems','currencies'].forEach(function(k){
+        var arr = p.__tomb[k];
+        if (Array.isArray(arr) && arr.length > MAX_PER_TYPE){
+          var before = arr.length;
+          p.__tomb[k] = arr.slice(-MAX_PER_TYPE); // keep newest 500
+          pruned = true;
+          console.log('[TOMB-CAP] Pruned ' + k + ': ' + before + ' → ' + MAX_PER_TYPE);
+        }
+      });
+    });
+    return pruned;
+  }
+
+  function save(){
+    try { localStorage.setItem(DB_KEY, JSON.stringify(window.appData)); } catch(e){}
+  }
+
+  // Hook SYNC-V2 push
+  function hookPush(){
+    if (!window.PakKhata || !window.PakKhata.Sync || !window.PakKhata.Sync.push) return false;
+    if (window.__pkTombPushHooked) return true;
+    window.__pkTombPushHooked = true;
+    var _origPush = window.PakKhata.Sync.push;
+    window.PakKhata.Sync.push = function(){
+      try {
+        if (pruneTombstones(window.appData)) save();
+      } catch(e){}
+      return _origPush.apply(this, arguments);
+    };
+    console.log('[TOMB-CAP] ✅ Push hook installed');
+    return true;
+  }
+
+  if (!hookPush()){
+    var tries = 0;
+    var iv = setInterval(function(){
+      tries++;
+      if (hookPush() || tries > 20) clearInterval(iv);
+    }, 500);
+  }
+
+  // Boot-time cleanup (first run after patch)
+  setTimeout(function(){
+    try {
+      if (pruneTombstones(window.appData)){
+        save();
+        if (typeof renderAll === 'function') renderAll();
+        console.log('[TOMB-CAP] ✅ Boot cleanup done');
+      }
+    } catch(e){}
+  }, 3500);
+
+  // Manual diagnostic + prune command
+  window.pk_tombStats = function(){
+    var cp = (typeof getCurrentProfile === 'function') ? getCurrentProfile() : null;
+    if (!cp || !cp.__tomb) return { error: 'no tombstone data' };
+    var out = {};
+    ['txns','parties','banks','stockItems','currencies'].forEach(function(k){
+      var len = (cp.__tomb[k] || []).length;
+      out[k] = len + (len > MAX_PER_TYPE ? ' ⚠️ OVER' : '');
+    });
+    out.max = MAX_PER_TYPE;
+    return out;
+  };
+
+  window.pk_pruneTombstones = function(){
+    if (pruneTombstones(window.appData)){
+      save();
+      if (typeof renderAll === 'function') renderAll();
+      return 'Pruned ✅';
+    }
+    return 'Nothing to prune — all within limit';
+  };
+
+  console.log('[TOMB-CAP] ✅ Ready — cap: ' + MAX_PER_TYPE + ' per type');
+})();
+</script>
+<!-- ============ TOMBSTONE SIZE CAP END ============ -->
 <!-- ============ Debug Console Menu Tile ============ -->
 <script>
 (function(){
