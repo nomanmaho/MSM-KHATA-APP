@@ -4816,7 +4816,7 @@ window.pk_markMyShareDeleted = _markMyShareDeleted;
 window.pk_getDeletedMyShares = _deletedMyShares;
 
 })();
-</scrip>
+</script>
 <!-- ============ PK3 Foundation ============ -->
 <script>
 (function(){
@@ -10771,5 +10771,54 @@ if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles
   console.log('[SHARE-BAR] ✅ Ready');
 })();
 </script>
+    <!-- 🧹 TEMPORARY CLEANUP BUTTON — baad mein hata dena -->
+<script>
+(function(){
+  if (window.__pkWipeBtn) return;
+  window.__pkWipeBtn = true;
+  
+  function createBtn(){
+    if (document.getElementById('pkWipeSharesBtn')) return;
+    var btn = document.createElement('button');
+    btn.id = 'pkWipeSharesBtn';
+    btn.textContent = '🧹 Wipe All Shared Profiles';
+    btn.style.cssText = 'position:fixed;bottom:120px;left:50%;transform:translateX(-50%);z-index:99999;background:#dc2626;color:#fff;border:none;padding:14px 20px;border-radius:30px;font-size:13px;font-weight:800;box-shadow:0 6px 20px rgba(220,38,38,.4);cursor:pointer;';
+    btn.onclick = async function(){
+      if (!confirm('Saare shared profiles delete karein? (Yeh permanent hai)')) return;
+      
+      var s = (typeof getSession === 'function') ? getSession() : null;
+      if (!s || !s.username){ alert('Not logged in'); return; }
+      
+      var k = encodeURIComponent(s.username).replace(/[.#$/\[\]]/g, '_');
+      var url = 'https://msm-khata-app-default-rtdb.asia-southeast1.firebasedatabase.app/pak_khata_shares/' + k + '.json';
+      
+      btn.textContent = '⏳ Deleting...';
+      btn.disabled = true;
+      
+      try {
+        var r = await fetch(url, { method: 'DELETE' });
+        console.log('Firebase delete:', r.status);
+      } catch(e){ console.warn('Firebase err:', e); }
+      
+      var d = JSON.parse(localStorage.getItem('pak_khata_pro_v3'));
+      d.sharedProfiles = [];
+      delete d.__activeSharedId;
+      if (d.profiles && d.profiles.length) d.activeProfileId = d.profiles[0].id;
+      localStorage.setItem('pak_khata_pro_v3', JSON.stringify(d));
+      
+      btn.textContent = '✅ Done! Reloading...';
+      setTimeout(function(){ location.reload(); }, 1500);
+    };
+    document.body.appendChild(btn);
+  }
+  
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', function(){ setTimeout(createBtn, 2000); });
+  } else {
+    setTimeout(createBtn, 2000);
+  }
+})();
+</script>
+
 </body>
 </html>
