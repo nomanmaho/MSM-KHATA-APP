@@ -10722,6 +10722,18 @@ console.log('██████████████████████�
     if (window.PakKhata && PakKhata.Sync && PakKhata.Sync.addRemoved){
   try { PakKhata.Sync.addRemoved(shareId); } catch(e){}
 }
+    // ✅ Firebase se bhi delete karo — reload par wapas na aaye
+try {
+  if (window.firebase && firebase.database){
+    var sess = (typeof getSession === 'function') ? getSession() : null;
+    if (sess && sess.username){
+      var recKey = (typeof safeUserKey === 'function') ? safeUserKey(sess.username) : sess.username;
+      firebase.database().ref('pak_khata_shares/' + recKey + '/' + shareId).remove()
+        .then(function(){ console.log('[SHARE-BAR] ✅ Firebase share removed:', shareId); })
+        .catch(function(e){ console.warn('[SHARE-BAR] Firebase remove failed:', e); });
+    }
+  }
+} catch(e){ console.warn('[SHARE-BAR] Firebase err:', e); }
 if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles = [];
     window.appData.sharedProfiles = window.appData.sharedProfiles.filter(function(x){
       return String(x.__shareId) !== String(shareId);
