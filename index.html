@@ -4332,7 +4332,7 @@ if (ad.profiles && ad.profiles.length){
 <!-- ================================================================= -->
 <!-- MODULE 2: SYNC — Firebase + Merge + Tombstones + Shares + Dedupe  -->
 <!-- ================================================================= -->
-<script>
+<script type="application/x-disabled">
 (function(){
 'use strict';
 if (window.__PK_SYNC_V2) return;
@@ -4815,19 +4815,8 @@ window.pk_forceDedupe = function(){
 window.pk_markMyShareDeleted = _markMyShareDeleted;
 window.pk_getDeletedMyShares = _deletedMyShares;
 
-// ---------- STEP 4F: LOGOUT CLEANUP ----------
-if (typeof window.doLogout === 'function' && !window.__pkALF_logout) {
-  window.__pkALF_logout = true;
-  var _origLogout = window.doLogout;
-  window.doLogout = function() {
-    console.log('[AUTH-LOGOUT] Detaching listeners before signOut...');
-        try { detachAll(); } catch(e) { console.warn('[AUTH-LOGOUT] detach err:', e); }
-    return _origLogout.apply(this, arguments);
-  };
-}
-
 })();
-</script>
+</scrip>
 <!-- ============ PK3 Foundation ============ -->
 <script>
 (function(){
