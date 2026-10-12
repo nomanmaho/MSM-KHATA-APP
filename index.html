@@ -10599,6 +10599,150 @@ console.log('█           __PK7_CRYPTO, __PK7_FILES              █');
 console.log('████████████████████████████████████████████████████');
 })();
 </script>
+<!-- ============ OWNER-SIDE SHARE LISTENER (bidirectional sync fix) ============ -->
+<script>
+(function(){
+  if (window.__PK_OWNER_LISTENER) return;
+  window.__PK_OWNER_LISTENER = true;
+  console.log('[OWNER-LISTENER] Loading...');
+
+  var DB_KEY = 'pak_khata_pro_v3';
+  var listeners = {};
+  var lastSeenHash = {};
+  var syncing = false;
+
+  function _sess(){ try { return (typeof getSession === 'function') ? getSession() : null; } catch(e){ return null; } }
+  function _key(u){
+    try { return (typeof safeUserKey === 'function') ? safeUserKey(u) : String(u).toLowerCase().replace(/[.#$/\[\]]/g,'_'); }
+    catch(e){ return String(u); }
+  }
+  function _db(){
+    try {
+      if (typeof firebase === 'undefined') return null;
+      if (!firebase.apps || !firebase.apps.length){
+        var url = (typeof getServerUrl === 'function') ? getServerUrl() : '';
+        if (!url) return null;
+        firebase.initializeApp({ databaseURL: url });
+      }
+      return firebase.database ? firebase.database() : null;
+    } catch(e){ return null; }
+  }
+  function _hash(data){
+    if (!data) return '0';
+    try {
+      var s = JSON.stringify(data);
+      var h = 0;
+      for (var i = 0; i < s.length; i++){
+        h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+      }
+      return (h >>> 0).toString(36) + '_' + s.length;
+    } catch(e){ return 'err'; }
+  }
+
+  function attachAll(){
+    var sess = _sess();
+    if (!sess || !sess.username) return;
+    var db = _db();
+    if (!db) return;
+    var myKey = _key(sess.username);
+    var shares = (window.appData && window.appData.myShares) || [];
+
+    shares.forEach(function(s){
+      if (!s.profileId) return;
+      if (s.__enabled === false) return;
+      if (listeners[s.profileId]) return;
+
+      var ref = db.ref('pak_khata_shared_profiles/' + myKey + '/' + s.profileId);
+      var cb = ref.on('value', function(snap){
+        try {
+          if (syncing) return;
+          var val = snap.val();
+          if (!val || !val.data) return;
+
+          // Skip if remote push came from US (owner)
+          if (val.lastEditor && val.lastEditor === sess.username) {
+            lastSeenHash[s.profileId] = _hash(val.data);
+            return;
+          }
+
+          var remoteHash = _hash(val.data);
+          if (lastSeenHash[s.profileId] === remoteHash) return;
+          lastSeenHash[s.profileId] = remoteHash;
+
+          var lp = (window.appData.profiles || []).find(function(p){
+            return String(p.id) === String(s.profileId);
+          });
+          if (!lp) return;
+
+          var rm = val.lastModified || 0;
+          if (rm <= (lp.lastModified || 0)) return;
+
+          console.log('[OWNER-LISTENER] Remote update for profile', s.profileId);
+
+          syncing = true;
+          var merged = JSON.parse(JSON.stringify(val.data));
+          merged.id = lp.id;
+          merged.lastModified = Date.now();
+
+          var idx = window.appData.profiles.indexOf(lp);
+          if (idx === -1){ syncing = false; return; }
+          window.appData.profiles[idx] = merged;
+          window.appData.lastModified = Date.now();
+
+          try { localStorage.setItem(DB_KEY, JSON.stringify(window.appData)); } catch(e){}
+          if (typeof renderAll === 'function'){ try { renderAll(); } catch(e){} }
+          if (typeof toast === 'function') toast('🔄 Dost ne update kiya', 'ok');
+
+          setTimeout(function(){
+            syncing = false;
+            try { if (typeof schedulePushToCloud === 'function') schedulePushToCloud(); } catch(e){}
+          }, 400);
+        } catch(e){
+          console.warn('[OWNER-LISTENER] err:', e);
+          syncing = false;
+        }
+      });
+
+      listeners[s.profileId] = { ref: ref, cb: cb };
+      console.log('[OWNER-LISTENER] Attached for profile', s.profileId);
+    });
+  }
+
+  // Override pushSharedProfileToCloud to include lastEditor (so owner can detect)
+  if (typeof window.pushSharedProfileToCloud === 'function' && !window.__pkSharedPushHooked){
+    window.__pkSharedPushHooked = true;
+    var _origPushShared = window.pushSharedProfileToCloud;
+    window.pushSharedProfileToCloud = async function(profile){
+      if (!profile || !profile.__shared) return;
+      if (typeof getPerm === 'function' && !getPerm('edit')) return;
+      try {
+        var sess = _sess();
+        var clean = JSON.parse(JSON.stringify(profile));
+        delete clean.__shared; delete clean.__role; delete clean.__ownerUsername;
+        delete clean.__ownerName; delete clean.__sourceProfileId; delete clean.__shareId;
+        delete clean.__remoteLastModified;
+        var db = _db();
+        await db.ref('pak_khata_shared_profiles/' + _key(profile.__ownerUsername) + '/' + profile.__sourceProfileId)
+          .update({
+            data: clean,
+            lastModified: Date.now(),
+            lastEditor: sess ? sess.username : 'unknown'
+          });
+      } catch(e){ console.warn('[OWNER-LISTENER] pushShared err:', e); }
+    };
+  }
+
+  window.attachOwnerListeners = attachAll;
+  window.pk_attachOwnerListeners = attachAll;
+
+  setTimeout(attachAll, 4000);
+  setTimeout(attachAll, 9000);
+  setInterval(attachAll, 25000);
+
+  console.log('[OWNER-LISTENER] ✅ Ready');
+})();
+</script>
+<!-- ============ OWNER-SIDE SHARE LISTENER END ============ -->
 <!-- ============ Shared Profile Control Bar ============ -->
 <script>
 (function(){
