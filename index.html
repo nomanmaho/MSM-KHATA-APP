@@ -7610,7 +7610,7 @@ PK4.installPushDebounce = function(){
   window.__pkPF_pushFast = true;
 
   var DB_KEY = 'pak_khata_pro_v3';
-
+var _origPush = window.pushToCloud;
   // Delegate to SYNC-V2's merge-aware push (safe for multi-device)
   window.pushToCloud = function(){
     try { localStorage.setItem(DB_KEY, JSON.stringify(window.appData)); } catch(e){}
