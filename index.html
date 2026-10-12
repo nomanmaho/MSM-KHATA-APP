@@ -465,7 +465,7 @@ body.is-offline #offlineBanner{display:block}
   var MAX = 300;
   var open = false;
   var captureEnabled = true;
-  var showBtn = true;
+  var showBtn = false;
   var autoOpenErr = false;
 
   try {
@@ -11196,5 +11196,63 @@ if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles
 })();
 </script>
 <!-- ============ PAUSE-PERSIST-FIX END ============ -->
+<!-- ============ Debug Console Menu Tile ============ -->
+<script>
+(function(){
+  if (window.__PK_DBG_MENU_TILE) return;
+  window.__PK_DBG_MENU_TILE = true;
+
+  function injectTile(){
+    var grid = document.querySelector('#mainMenuModal .menu-grid');
+    if (!grid || grid.querySelector('#pkDbgMenuTile')) return;
+    var btn = document.createElement('button');
+    btn.id = 'pkDbgMenuTile';
+    btn.className = 'menu-tile';
+    btn.style.cssText = 'background:linear-gradient(135deg,#f1f5f9,#e2e8f0);';
+    btn.innerHTML =
+      '<div class="mt-icon" style="background:linear-gradient(135deg,#475569,#1e293b);color:#fff;">' +
+        '<i class="fa-solid fa-bug"></i>' +
+      '</div>' +
+      '<span style="color:#334155;">Debug<br>Console</span>';
+    btn.onclick = function(){
+      try {
+        if (typeof closeModal === 'function') closeModal('mainMenuModal');
+        setTimeout(function(){
+          if (window.PK_DEBUG && typeof window.PK_DEBUG.show === 'function'){
+            window.PK_DEBUG.show();
+          } else {
+            var b = document.getElementById('pkDbgBtn');
+            if (b && b.onclick) b.onclick();
+          }
+        }, 220);
+      } catch(e){ console.warn('[DBG-TILE] open err:', e); }
+    };
+    grid.appendChild(btn);
+    console.log('[DBG-TILE] ✅ Menu tile added');
+  }
+
+  // Hook openMainMenu
+  function hookMenu(){
+    if (typeof window.openMainMenu !== 'function' || window.__pkDbgMenuHooked) return false;
+    window.__pkDbgMenuHooked = true;
+    var _orig = window.openMainMenu;
+    window.openMainMenu = function(){
+      var r = _orig.apply(this, arguments);
+      setTimeout(injectTile, 120);
+      return r;
+    };
+    return true;
+  }
+
+  if (!hookMenu()){
+    var tries = 0;
+    var iv = setInterval(function(){
+      tries++;
+      if (hookMenu() || tries > 20) clearInterval(iv);
+    }, 400);
+  }
+})();
+</script>
+<!-- ============ Debug Console Menu Tile END ============ -->
 </body>
 </html>
