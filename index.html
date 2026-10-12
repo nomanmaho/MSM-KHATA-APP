@@ -7617,7 +7617,7 @@ PK4.installPushDebounce = function(){
     if (window.PakKhata && PakKhata.Sync && typeof PakKhata.Sync.push === 'function'){
       return PakKhata.Sync.push();
     }
-    return Promise.resolve(false);
+    return _origPush.apply(this, arguments);
   };
 };
 
