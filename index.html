@@ -455,7 +455,7 @@ body.is-offline #offlineBanner{display:block}
 @media print{@page{margin:10mm}body{background:#fff!important;padding:0!important;color:#000!important}body>*{display:none!important}#statementModal{display:block!important;position:static!important;background:#fff!important;backdrop-filter:none!important;height:auto!important;width:100%!important}#statementModal .modal-sheet{height:auto!important;max-height:none!important;overflow:visible!important;border-radius:0!important;box-shadow:none!important;padding:0!important;max-width:100%!important;background:#fff!important}#statementModal .no-print{display:none!important}.statement-table-wrap{overflow:visible!important;border:1px solid #999!important;border-radius:0!important}.stmt-table{min-width:0!important;font-size:10px!important;width:100%!important}.stmt-table th{background:#eee!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}.statement-summary-box{border:1px solid #999!important}.val-green,.val-red{color:#000!important}}
 </style>
 </head>
-< onclick="closeLangMenuOnOutside(event)">
+<body onclick="closeLangMenuOnOutside(event)">
 <!-- ============ 🐛 DEBUG CONSOLE (temporary) ============ -->
 <script>
 (function(){
@@ -4821,33 +4821,21 @@ if (typeof window.doLogout === 'function' && !window.__pkALF_logout) {
   var _origLogout = window.doLogout;
   window.doLogout = function() {
     console.log('[AUTH-LOGOUT] Detaching listeners before signOut...');
-    try { detachAll(); } catch(e) { console.warn('[AUTH-LOGOUT] detach err:', e); }
-    setTimeout(function() {
-      try { _origLogout.apply(window, arguments); } catch(e) {}
-    }, 120);
+        try { detachAll(); } catch(e) { console.warn('[AUTH-LOGOUT] detach err:', e); }
+    return _origLogout.apply(this, arguments);
   };
 }
 
-// Auto-cleanup on auth state change
-setTimeout(function() {
-  try {
-    if (typeof firebase === 'undefined' || !firebase.auth) return;
-    firebase.auth().onAuthStateChanged(function(user) {
-      if (!user) {
-
-<!-- ================================================================= -->
-<!-- MODULE 3: FEATURES — Phase 3A: Foundation (PK3 namespace)         -->
-<!-- Shared helpers — existing 6 patches untouched                     -->
-<!-- Future consolidations will use PK3.* and delete old patches       -->
-<!-- ================================================================= -->
+})();
+</script>
+<!-- ============ PK3 Foundation ============ -->
 <script>
 (function(){
 'use strict';
 if (window.__PK3_FOUNDATION) return;
 window.__PK3_FOUNDATION = true;
 console.log('[PK3-FOUNDATION] Loading...');
-
-var PakKhata = window.PakKhata = window.PakKhata || {};
+ var PakKhata = window.PakKhata = window.PakKhata || {};
 var DB_KEY = 'pak_khata_pro_v3';
 
 // ============================================================
