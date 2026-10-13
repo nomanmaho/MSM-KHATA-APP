@@ -1880,9 +1880,54 @@ function binaryToUtf8(bin){
   return new TextDecoder().decode(bytes);
 }
 function updateOnlineStatus(){ document.body.classList.toggle('is-offline', !navigator.onLine); }
-window.addEventListener('online', function(){ 
-  updateOnlineStatus(); 
+window.addEventListener('online', function(){
+  updateOnlineStatus();
   try { toast('Online ✓','ok'); } catch(e){}
+  // ✅ FIX: Flush offline entries to cloud (with retry)
+  var maxTries = 6, interval = 2500, tries = 0;
+  function attemptPush(){
+    tries++;
+    try {
+      var sess = getSession();
+      if (!sess || !sess.username){ console.log('[ONLINE-FLUSH] No session, skip'); return; }
+      if (typeof firebase === 'undefined'){ console.log('[ONLINE-FLUSH] Firebase missing'); return; }
+      var user = firebase.auth && firebase.auth().currentUser;
+      if (!user || !user.uid){
+        console.log('[ONLINE-FLUSH] Auth not ready (try ' + tries + ')');
+        if (tries < maxTries) setTimeout(attemptPush, interval);
+        return;
+      }
+      // Ensure DB initialized
+      try {
+        if (!firebase.apps || !firebase.apps.length){
+          firebase.initializeApp({ databaseURL: normalizeServerUrl(getServerUrl()) });
+        }
+      } catch(e){}
+      var p = null;
+      if (window.PakKhata && PakKhata.Sync && typeof PakKhata.Sync.push === 'function'){
+        p = PakKhata.Sync.push();
+      } else if (typeof pushToCloud === 'function'){
+        p = pushToCloud();
+      }
+      if (!p){ console.log('[ONLINE-FLUSH] No push fn'); return; }
+      Promise.resolve(p).then(function(ok){
+        if (ok){
+          console.log('[ONLINE-FLUSH] ✅ Push success (try ' + tries + ')');
+          return;
+        }
+        console.log('[ONLINE-FLUSH] Push returned false (try ' + tries + ')');
+        if (tries < maxTries) setTimeout(attemptPush, interval);
+      }).catch(function(e){
+        console.warn('[ONLINE-FLUSH] Push error (try ' + tries + '):', e && e.message);
+        if (tries < maxTries) setTimeout(attemptPush, interval);
+      });
+    } catch(e){
+      console.warn('[ONLINE-FLUSH] err:', e);
+      if (tries < maxTries) setTimeout(attemptPush, interval);
+    }
+  }
+  setTimeout(attemptPush, 1500);
+});
   // ✅ FIX: Flush offline entries to cloud when back online
   var attempts = 0;
   function tryPush(){
@@ -3351,7 +3396,7 @@ function onNatureChange(){
   if (currSec) currSec.style.display = (nature === 'currency_buy' || nature === 'currency_sell') ? '' : 'none';
   if (pmGroup) pmGroup.style.display = isTrade ? '' : 'none';
   if (pmlbl){
-    if (nature === 'purchase' || nature === 'currency_buy') pmlbl.textContent = '💳 How are you paying? / ادائیگی';
+    if (nature === 'purchase' || nature === 'currency_buy') pmlbl.textContent = '?? How are you paying? / ادائیگی';
     else if (nature === 'sale' || nature === 'currency_sell') pmlbl.textContent = '💰 How are you receiving? / وصولی';
     else pmlbl.textContent = '💳 Payment Mode / ادائیگی';
   }
