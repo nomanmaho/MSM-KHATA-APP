@@ -11969,5 +11969,212 @@ if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles
 })();
 </script>
 <!-- ============ SYNC-SHARES-MERGE-FIX END ============ -->
+<!-- ============ SHARED-SYNC-FINAL-FIX (compact) ============ -->
+<script>
+(function(){
+  'use strict';
+  if (window.__PK_SHARED_FIX_FINAL) return;
+  window.__PK_SHARED_FIX_FINAL = true;
+  console.log('[SHARED-FIX-FINAL] Loading...');
+
+  function _run(fn){
+    var t0 = Date.now();
+    (function ck(){
+      if (window.PakKhata && window.PakKhata.Sync && window.PakKhata.Sync.mergeProfiles) return fn();
+      if (Date.now() - t0 > 8000) return console.error('[SHARED-FIX] Timeout');
+      setTimeout(ck, 200);
+    })();
+  }
+
+  _run(function(){
+    var PK = window.PakKhata, Sync = PK.Sync;
+    var mergeProfiles = Sync.mergeProfiles;
+    var DB_KEY = 'pak_khata_pro_v3';
+
+    function _sess(){ try { return getSession(); } catch(e){ return null; } }
+    function _key(u){ try { return safeUserKey(u); } catch(e){ return String(u).toLowerCase().replace(/[.#$/\[\]]/g,'_'); } }
+    function _db(){
+      try {
+        if (typeof firebase === 'undefined') return null;
+        if (!firebase.apps || !firebase.apps.length){
+          var url = (typeof getServerUrl === 'function') ? getServerUrl() : '';
+          if (!url) return null;
+          firebase.initializeApp({ databaseURL: url });
+        }
+        return firebase.database();
+      } catch(e){ return null; }
+    }
+    function _persist(){ try { if (window.appData) localStorage.setItem(DB_KEY, JSON.stringify(window.appData)); } catch(e){} }
+
+    // ===== FIX #1: mergeAppData — deep merge sharedProfiles (ASAL FIX) =====
+    var _origMergeAppData = Sync.mergeAppData;
+    Sync.mergeAppData = function(local, remote){
+      var out = _origMergeAppData(local, remote);
+      if (!out || !local || !remote) return out;
+      try {
+        var localSP = local.sharedProfiles || [];
+        var remoteSP = remote.sharedProfiles || [];
+        if (!localSP.length && !remoteSP.length) return out;
+
+        var merged = {};
+        localSP.forEach(function(sp){ if (sp && sp.__shareId) merged[sp.__shareId] = sp; });
+        remoteSP.forEach(function(rsp){
+          if (!rsp || !rsp.__shareId) return;
+          var lsp = merged[rsp.__shareId];
+          if (!lsp){ merged[rsp.__shareId] = rsp; return; }
+          var m = mergeProfiles(lsp, rsp);
+          m.id = rsp.id;
+          m.__shared = true; m.__role = rsp.__role;
+          m.__ownerUsername = rsp.__ownerUsername; m.__ownerName = rsp.__ownerName;
+          m.__sourceProfileId = rsp.__sourceProfileId; m.__shareId = rsp.__shareId;
+          m.__remoteLastModified = Math.max(lsp.__remoteLastModified||0, rsp.__remoteLastModified||0);
+          if (typeof lsp.__active !== 'undefined') m.__active = lsp.__active;
+          merged[rsp.__shareId] = m;
+          var lt = (lsp.transactions||[]).length, rt = (rsp.transactions||[]).length, mt = (m.transactions||[]).length;
+          if (lt !== rt) console.log('[SHARED-FIX] ✅ deep-merge: L='+lt+' R='+rt+' M='+mt+' @ '+rsp.name);
+        });
+        out.sharedProfiles = Object.keys(merged).map(function(k){ return merged[k]; });
+      } catch(e){ console.warn('[SHARED-FIX] mergeAppData wrap err:', e); }
+      return out;
+    };
+    // Backward compat
+    window.__pkMergeAppData = Sync.mergeAppData;
+
+    // ===== FIX #2: listenShares — merge-safe =====
+    var _shL = null, _subs = [];
+
+    function _attach(sp){
+      if (typeof firebase === 'undefined') return;
+      try {
+        var db = firebase.database();
+        var ref = db.ref('pak_khata_shared_profiles/' + _key(sp.__ownerUsername) + '/' + sp.__sourceProfileId);
+        ref.on('value', function(snap){
+          try {
+            var val = snap.val(); if (!val || !val.data) return;
+            var t = (window.appData.sharedProfiles||[]).find(function(x){ return String(x.__shareId) === String(sp.__shareId); });
+            if (!t || val.lastModified === t.__remoteLastModified) return;
+            var m = mergeProfiles(t, val.data);
+            m.id = t.id; m.__shared = true; m.__role = t.__role;
+            m.__ownerUsername = t.__ownerUsername; m.__ownerName = t.__ownerName;
+            m.__sourceProfileId = t.__sourceProfileId; m.__shareId = t.__shareId;
+            m.__remoteLastModified = val.lastModified || 0;
+            if (typeof t.__active !== 'undefined') m.__active = t.__active;
+            var idx = window.appData.sharedProfiles.indexOf(t); if (idx === -1) return;
+            window.appData.sharedProfiles[idx] = m;
+            _persist();
+            if (typeof renderAll === 'function') try { renderAll(); } catch(e){}
+          } catch(e){}
+        });
+        _subs.push(ref);
+      } catch(e){}
+    }
+
+    async function _syncSafe(shares){
+      var db = _db(); if (!db || !window.appData) return;
+      if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles = [];
+      var list = [];
+      for (var i = 0; i < shares.length; i++){
+        var s = shares[i];
+        try {
+          var snap = await db.ref('pak_khata_shared_profiles/' + _key(s.ownerUsername) + '/' + s.profileId).once('value');
+          var sp = snap.val(); if (!sp || !sp.data) continue;
+          var _prev = (window.appData.sharedProfiles||[]).find(function(x){ return String(x.__shareId) === String(s.shareId); });
+          var c;
+          if (_prev){
+            try {
+              c = mergeProfiles(_prev, sp.data);
+              var lt = (_prev.transactions||[]).length, rt = (sp.data.transactions||[]).length, mt = (c.transactions||[]).length;
+              if (lt !== rt) console.log('[SHARED-FIX] ✅ Preserved local: L='+lt+' R='+rt+' M='+mt+' @ '+s.profileName);
+            } catch(e){ c = JSON.parse(JSON.stringify(sp.data)); }
+          } else { c = JSON.parse(JSON.stringify(sp.data)); }
+          c.id = s.shareId; c.__shared = true; c.__role = s.role;
+          c.__ownerUsername = s.ownerUsername; c.__ownerName = s.ownerName;
+          c.__sourceProfileId = s.profileId; c.__shareId = s.shareId;
+          c.__remoteLastModified = sp.lastModified || 0;
+          c.__active = (_prev && _prev.__active !== undefined) ? _prev.__active : (s.__enabled !== false);
+          list.push(c);
+        } catch(e){}
+      }
+      window.appData.sharedProfiles = list;
+      _persist();
+      _subs.forEach(function(r){ try { r.off(); } catch(e){} }); _subs = [];
+      list.forEach(_attach);
+      try {
+        var _p = window.appData.__activeSharedId;
+        if (_p){
+          var _f = list.find(function(x){ return String(x.__shareId) === String(_p) || String(x.id) === String(_p); });
+          if (_f && _f.__active !== false){
+            window.appData.activeProfileId = _f.id;
+            window.appData.__activeSharedId = String(_f.__shareId || _f.id);
+            if (PK.ActiveProfile && PK.ActiveProfile.persist) try { PK.ActiveProfile.persist(); } catch(e){}
+          }
+        }
+      } catch(e){}
+      if (typeof renderAll === 'function') try { renderAll(); } catch(e){}
+      if (typeof renderReceivedShares === 'function') try { renderReceivedShares(); } catch(e){}
+      try { if (Sync.attachOwnerListeners) Sync.attachOwnerListeners(); } catch(e){}
+      if (navigator.onLine) setTimeout(_flush, 1500);
+    }
+
+    Sync.listenShares = function(){
+      if (typeof firebase === 'undefined') return;
+      var db = _db(); if (!db) return;
+      var sess = _sess(); if (!sess || !sess.username) return;
+      try {
+        if (_shL){ try { _shL.off(); } catch(e){} }
+        _shL = db.ref('pak_khata_shares/' + _key(sess.username));
+        _shL.on('value', function(snap){
+          var val = snap.val() || {};
+          var arr = Object.keys(val).map(function(k){ return val[k]; });
+          var rmv = (Sync.getRemoved && Sync.getRemoved()) || [];
+          arr = arr.filter(function(s){ return s && s.shareId && rmv.indexOf(String(s.shareId)) === -1; });
+          _syncSafe(arr);
+        });
+        console.log('[SHARED-FIX] ✅ listenShares patched');
+      } catch(e){}
+    };
+    window.initSharesSync = Sync.listenShares;
+
+    // ===== FIX #3: Flush to cloud on reconnect =====
+    async function _flush(){
+      try {
+        if (!navigator.onLine) return;
+        if (!window.appData || !Array.isArray(window.appData.sharedProfiles)) return;
+        var db = _db(); if (!db) return;
+        var sess = _sess(); if (!sess || !sess.username) return;
+        var pushed = 0;
+        for (var i = 0; i < window.appData.sharedProfiles.length; i++){
+          var sp = window.appData.sharedProfiles[i];
+          if (!sp.__shared || !sp.__ownerUsername || !sp.__sourceProfileId) continue;
+          if (typeof getPerm === 'function' && !getPerm('edit')) continue;
+          try {
+            var path = 'pak_khata_shared_profiles/' + _key(sp.__ownerUsername) + '/' + sp.__sourceProfileId;
+            var ref = db.ref(path);
+            var snap = await ref.once('value');
+            var ex = snap.val();
+            var clean = JSON.parse(JSON.stringify(sp));
+            ['__shared','__role','__ownerUsername','__ownerName','__sourceProfileId','__shareId','__remoteLastModified','__active'].forEach(function(k){ delete clean[k]; });
+            var w = (ex && ex.data) ? mergeProfiles(clean, ex.data) : clean;
+            await ref.update({ data: w, lastModified: Date.now(), lastEditor: sess.username });
+            pushed++;
+          } catch(e){}
+        }
+        if (pushed > 0) console.log('[SHARED-FIX] ✅ Flushed ' + pushed + ' shared profile(s)');
+      } catch(e){}
+    }
+    window.pk_flushSharedToCloud = _flush;
+
+    window.addEventListener('online', function(){
+      console.log('[SHARED-FIX] 🌐 online event');
+      setTimeout(_flush, 2000);
+    });
+
+    setTimeout(function(){ if (navigator.onLine) _flush(); }, 5000);
+
+    console.log('[SHARED-FIX-FINAL] ✅ Ready — 3 fixes active');
+  });
+})();
+</script>
+<!-- ============ SHARED-SYNC-FINAL-FIX END ============ -->
 </body>
 </html>
