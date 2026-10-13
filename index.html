@@ -1927,7 +1927,7 @@ window.addEventListener('online', function(){
     }
   }
   setTimeout(attemptPush, 1500);
-});
+});                                         ← yeh rehne do (addEventListener close)
   // ✅ FIX: Flush offline entries to cloud when back online
   var attempts = 0;
   function tryPush(){
@@ -1947,7 +1947,7 @@ window.addEventListener('online', function(){
     if (attempts < 6) setTimeout(tryPush, 1000);
   }
   setTimeout(tryPush, 800);
-});
+  
 window.addEventListener('offline', function(){ updateOnlineStatus(); try { toast('Offline — local save','warn'); } catch(e){} });
 document.addEventListener('focusin', function(e){
   if (!IS_IOS) return;
@@ -3396,7 +3396,7 @@ function onNatureChange(){
   if (currSec) currSec.style.display = (nature === 'currency_buy' || nature === 'currency_sell') ? '' : 'none';
   if (pmGroup) pmGroup.style.display = isTrade ? '' : 'none';
   if (pmlbl){
-    if (nature === 'purchase' || nature === 'currency_buy') pmlbl.textContent = '?? How are you paying? / ادائیگی';
+    if (nature === 'purchase' || nature === 'currency_buy') pmlbl.textContent = '💳 How are you paying? / ادائیگی';
     else if (nature === 'sale' || nature === 'currency_sell') pmlbl.textContent = '💰 How are you receiving? / وصولی';
     else pmlbl.textContent = '💳 Payment Mode / ادائیگی';
   }
@@ -4042,7 +4042,6 @@ function doLogin(){
       });
   }).then(function(snap) {
   if (!snap) return;
-  var oldB = appData;
   var oldD = appData;
 var remote = snap.val();
 if (remote && remote.profiles && remote.profiles.length) {
