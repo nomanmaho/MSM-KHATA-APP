@@ -11586,9 +11586,6 @@ if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles
 
     if (linkedBank && _origCreate){
       var transfer = _origCreate(tx, chequeBank, linkedBank);
-    // PK3-CHEQUE-II ke wrapSaveForDirectClear mein, is line ke BAAD:
-// var transfer = createClearanceTransfer(tx, chequeBank, linkedBank);
-// Ye add karo:
   if (transfer){
         transfer.__v = Date.now();
         tx.__clearedTransferId = transfer.id;
