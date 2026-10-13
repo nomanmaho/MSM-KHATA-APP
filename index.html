@@ -6899,14 +6899,21 @@ function installHooks(){
               ? cp.transactions.find(function(x){ return String(x.id) === String(editId); })
               : cp.transactions[0];
             if (t) {
-              t.chequeNumber = (document.getElementById('chequeNumber')||{}).value || '';
-              t.chequeDate = (document.getElementById('chequeDate')||{}).value || '';
-              var stEl = document.querySelector('input[name="chqStatus"]:checked');
-              t.chequeStatus = stEl ? stEl.value : 'pending';
-              var nat = t.nature || 'receipt';
-              t.chequeDirection = (nat === 'receipt' || nat === 'sale' || nat === 'currency_sell') ? 'received' : 'issued';
-              _persist(); _refresh();
-            }
+  t.chequeNumber = (document.getElementById('chequeNumber')||{}).value || '';
+  t.chequeDate = (document.getElementById('chequeDate')||{}).value || '';
+  var stEl = document.querySelector('input[name="chqStatus"]:checked');
+  t.chequeStatus = stEl ? stEl.value : 'pending';
+  var nat = t.nature || 'receipt';
+  t.chequeDirection = (nat === 'receipt' || nat === 'sale' || nat === 'currency_sell') ? 'received' : 'issued';
+  // ✅ FIX: version bump + full save (cloud push + render)
+  t.__v = Date.now();
+  try {
+    if (typeof save === 'function') save();
+    else { _persist(); _refresh(); }
+  } catch(err){
+    _persist(); _refresh();
+  }
+}
           }
         } catch(e){}
       }
@@ -11307,17 +11314,22 @@ if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles
 })();
 </script>
 <!-- ============ TOMBSTONE SIZE CAP END ============ -->
-<!-- ============ ACTIVE PROFILE VALIDATION FIX ============ -->
+<!-- ============ ACTIVE PROFILE VALIDATION FIX (v2 — smart) ============ -->
 <script>
 (function(){
   if (window.__PK_ACTIVE_PROFILE_FIX) return;
   window.__PK_ACTIVE_PROFILE_FIX = true;
-  console.log('[PROFILE-FIX] Loading...');
+  console.log('[PROFILE-FIX] Loading v2...');
 
   function validateActiveId(ad){
     if (!ad) return false;
     var activeId = String(ad.activeProfileId || '');
     var sharedId = String(ad.__activeSharedId || '');
+
+    // ✅ FIX: Shared profiles load nahi hui + shared ID set hai → wait karo, don't wipe
+    if (sharedId && (!ad.sharedProfiles || ad.sharedProfiles.length === 0)){
+      return true; // pending load — treat as valid
+    }
 
     var ownMatch = (ad.profiles || []).some(function(p){
       return String(p.id) === activeId;
@@ -11342,6 +11354,13 @@ if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles
     if (!ad) return false;
     var activeId = String(ad.activeProfileId || '');
     if (!activeId) return false;
+
+    // ✅ FIX: Same guard — shared pending load → skip
+    var sharedId = String(ad.__activeSharedId || '');
+    if (sharedId && (!ad.sharedProfiles || ad.sharedProfiles.length === 0)){
+      return false;
+    }
+
     if (validateActiveId(ad)) return false;
 
     var fallback = (ad.profiles && ad.profiles.length) ? ad.profiles[0] : null;
@@ -11349,14 +11368,6 @@ if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles
       ad.activeProfileId = fallback.id;
       delete ad.__activeSharedId;
       console.log('[PROFILE-FIX] Fixed stale ID: ' + activeId + ' → ' + fallback.id);
-      return true;
-    }
-
-    var sharedFb = (ad.sharedProfiles && ad.sharedProfiles.length) ? ad.sharedProfiles[0] : null;
-    if (sharedFb){
-      ad.activeProfileId = sharedFb.id;
-      ad.__activeSharedId = String(sharedFb.__shareId || sharedFb.id);
-      console.log('[PROFILE-FIX] Fixed stale ID → shared: ' + sharedFb.id);
       return true;
     }
     return false;
@@ -11373,7 +11384,6 @@ if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles
     if (typeof window.pkPreserveActive !== 'function') return false;
     if (window.__pkProfileFixHooked) return true;
     window.__pkProfileFixHooked = true;
-
     var _orig = window.pkPreserveActive;
     window.pkPreserveActive = function(oldAppData, newAppData){
       var r = _orig.apply(this, arguments);
@@ -11393,15 +11403,33 @@ if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles
     }, 400);
   }
 
-  setTimeout(function(){
-    try {
-      if (fixStaleId(window.appData)){
-        persistFix();
-        if (typeof renderAll === 'function') renderAll();
-        console.log('[PROFILE-FIX] ✅ Boot cleanup done');
-      }
-    } catch(e){}
-  }, 4000);
+  // ✅ FIX: Multiple delayed checks (syncShares ke baad bhi)
+  [6000, 12000, 20000].forEach(function(delay){
+    setTimeout(function(){
+      try {
+        if (fixStaleId(window.appData)){
+          persistFix();
+          if (typeof renderAll === 'function') renderAll();
+          console.log('[PROFILE-FIX] ✅ Cleanup @ ' + delay + 'ms');
+        }
+      } catch(e){}
+    }, delay);
+  });
+
+  // ✅ FIX: Re-validate jab sharedProfiles update ho jaye
+  (function watchShares(){
+    var lastLen = 0;
+    setInterval(function(){
+      try {
+        var ad = window.appData;
+        if (!ad || !ad.sharedProfiles) return;
+        if (ad.sharedProfiles.length !== lastLen){
+          lastLen = ad.sharedProfiles.length;
+          if (fixStaleId(ad)) persistFix();
+        }
+      } catch(e){}
+    }, 3000);
+  })();
 
   window.pk_fixStaleProfile = function(){
     if (fixStaleId(window.appData)){
@@ -11409,22 +11437,24 @@ if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles
       if (typeof renderAll === 'function') renderAll();
       return 'Fixed ✅';
     }
-    return 'No fix needed — activeProfileId is valid';
+    return 'No fix needed';
   };
 
   window.pk_checkStale = function(){
     var ad = window.appData;
     if (!ad) return { error: 'no appData' };
+    var sharedPending = String(ad.__activeSharedId||'') && (!ad.sharedProfiles || ad.sharedProfiles.length === 0);
     return {
       activeProfileId: String(ad.activeProfileId || ''),
       __activeSharedId: String(ad.__activeSharedId || ''),
       ownIds: (ad.profiles || []).map(function(p){ return String(p.id); }),
       sharedIds: (ad.sharedProfiles || []).map(function(sp){ return String(sp.id); }),
+      sharedPending: sharedPending,
       isValid: validateActiveId(ad)
     };
   };
 
-  console.log('[PROFILE-FIX] ✅ Ready');
+  console.log('[PROFILE-FIX] ✅ Ready v2 (smart)');
 })();
 </script>
 <!-- ============ ACTIVE PROFILE VALIDATION FIX END ============ -->
