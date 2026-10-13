@@ -1880,7 +1880,29 @@ function binaryToUtf8(bin){
   return new TextDecoder().decode(bytes);
 }
 function updateOnlineStatus(){ document.body.classList.toggle('is-offline', !navigator.onLine); }
-window.addEventListener('online', function(){ updateOnlineStatus(); try { toast('Online ✓','ok'); } catch(e){} });
+window.addEventListener('online', function(){ 
+  updateOnlineStatus(); 
+  try { toast('Online ✓','ok'); } catch(e){}
+  // ✅ FIX: Flush offline entries to cloud when back online
+  var attempts = 0;
+  function tryPush(){
+    attempts++;
+    try {
+      var sess = getSession();
+      if (sess && sess.username && typeof firebase !== 'undefined' && firebase.auth && firebase.auth().currentUser){
+        if (window.PakKhata && PakKhata.Sync && typeof PakKhata.Sync.push === 'function'){
+          PakKhata.Sync.push();
+        } else if (typeof pushToCloud === 'function'){
+          pushToCloud();
+        }
+        console.log('[ONLINE-FLUSH] Push triggered after ' + attempts + ' attempt(s)');
+        return;
+      }
+    } catch(e){ console.warn('[ONLINE-FLUSH] err', e); }
+    if (attempts < 6) setTimeout(tryPush, 1000);
+  }
+  setTimeout(tryPush, 800);
+});
 window.addEventListener('offline', function(){ updateOnlineStatus(); try { toast('Offline — local save','warn'); } catch(e){} });
 document.addEventListener('focusin', function(e){
   if (!IS_IOS) return;
@@ -4186,10 +4208,22 @@ function initRealtimeSync(username){
 function detachRealtimeSync(){ if (rtdbListener){ try { rtdbListener.off(); } catch(e){} rtdbListener = null; } rtdbRef = null; }
 
 async function bootstrapAuth(){
+  // ✅ FIX: Check local session FIRST
+  var localSess = getSession();
+  var hasLocalSession = !!(localSess && localSess.username);
+
   var forceShowTimer = setTimeout(function(){
     try {
       var bl = document.getElementById('bootLoader');
       if (bl) bl.classList.remove('show');
+      // ✅ FIX: Don't show login if local session exists
+      if (hasLocalSession){
+        document.body.classList.remove('auth-pending');
+        if (typeof hideAuthScreen === 'function') hideAuthScreen();
+        if (typeof renderAll === 'function'){ try { renderAll(); } catch(e){} }
+        console.log('[BOOT] Local session found — skipping auth screen');
+        return;
+      }
       if (typeof showAuthScreen === 'function') showAuthScreen();
     } catch(e){}
   }, 3000);
@@ -4200,33 +4234,59 @@ async function bootstrapAuth(){
     if (!url) return;
 
     firebase.auth().onAuthStateChanged(function(user) {
-      clearTimeout(forceShowTimer);
-      var bl = document.getElementById('bootLoader'); if (bl) bl.classList.remove('show');
-      if (user) {
-        var email = user.email;
-        var sess = { username: email, name: email.split('@')[0], email: email, loggedInAt: Date.now() };
-        setSession(sess, true);
-        document.body.classList.remove('auth-pending'); hideAuthScreen();
-        firebase.database().ref('pak_khata_data/' + safeUserKey(email)).once('value').then(function(snap) {
-          var remote = snap.val();
-var oldA = appData;
-if (remote && remote.profiles && remote.profiles.length) { var mig = migrateData(remote); if (mig) appData = pkPreserveActive(oldA, mig); }
-else { appData = pkPreserveActive(oldA, getFreshData()); }
-          appData.firebaseUrl = url; appData.syncId = email;
-          try { localStorage.setItem(DB_KEY, JSON.stringify(appData)); } catch(e){}
-          try {
-            firebase.database().ref('pak_khata_directory/' + safeUserKey(email)).update({
-              username: email, name: email.split('@')[0], email: email, lastSeen: Date.now()
-            });
-          } catch(e){}
-          initRealtimeSync(email); initSharesSync();
-          try { renderAll(); } catch(e){}
-        });
+  clearTimeout(forceShowTimer);
+  var bl = document.getElementById('bootLoader'); if (bl) bl.classList.remove('show');
+  if (user) {
+    var email = user.email;
+    var sess = { username: email, name: email.split('@')[0], email: email, loggedInAt: Date.now() };
+    setSession(sess, true);
+    document.body.classList.remove('auth-pending'); hideAuthScreen();
+    firebase.database().ref('pak_khata_data/' + safeUserKey(email)).once('value').then(function(snap) {
+      var remote = snap.val();
+      var oldA = appData;
+      if (remote && remote.profiles && remote.profiles.length) {
+        var mig = migrateData(remote);
+        if (mig) {
+          // ✅ FIX: MERGE local + remote (preserve offline entries) instead of replace
+          if (window.PakKhata && PakKhata.Sync && typeof PakKhata.Sync.mergeAppData === 'function'){
+            appData = pkPreserveActive(oldA, PakKhata.Sync.mergeAppData(oldA || {}, mig) || mig);
+          } else {
+            appData = pkPreserveActive(oldA, mig);
+          }
+        }
       } else {
-        setSession(null);
-        showAuthScreen();
+        appData = pkPreserveActive(oldA, getFreshData());
       }
+      appData.firebaseUrl = url; appData.syncId = email;
+      try { localStorage.setItem(DB_KEY, JSON.stringify(appData)); } catch(e){}
+      try {
+        firebase.database().ref('pak_khata_directory/' + safeUserKey(email)).update({
+          username: email, name: email.split('@')[0], email: email, lastSeen: Date.now()
+        });
+      } catch(e){}
+      initRealtimeSync(email); initSharesSync();
+      try { renderAll(); } catch(e){}
+      // ✅ FIX: Push merged data (offline entries) back to cloud
+      try {
+        if (window.PakKhata && PakKhata.Sync && typeof PakKhata.Sync.push === 'function'){
+          setTimeout(function(){ try { PakKhata.Sync.push(); } catch(e){} }, 1500);
+        }
+      } catch(e){}
     });
+  } else {
+    // ✅ FIX: Don't sign out if local session exists (offline case)
+    var localSess2 = getSession();
+    if (localSess2 && localSess2.username){
+      console.log('[BOOT] Firebase auth null but local session exists — staying signed in');
+      document.body.classList.remove('auth-pending');
+      if (typeof hideAuthScreen === 'function') hideAuthScreen();
+      if (typeof renderAll === 'function'){ try { renderAll(); } catch(e){} }
+      return;
+    }
+    setSession(null);
+    showAuthScreen();
+  }
+});
   } catch(e) {
     clearTimeout(forceShowTimer);
     console.error("Bootstrap error:", e);
