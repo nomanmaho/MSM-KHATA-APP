@@ -11774,5 +11774,200 @@ if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles
 })();
 </script>
 <!-- ============ CHEQUE SYNC FIX END ============ -->
+<!-- ============ SYNC-SHARES-MERGE-FIX (offline shared entry preservation) ============ -->
+<script>
+(function(){
+  if (window.__PK_SYNC_SHARES_FIX) return;
+  window.__PK_SYNC_SHARES_FIX = true;
+  console.log('[SYNC-SHARES-FIX] Loading...');
+
+  var PakKhata = window.PakKhata;
+  if (!PakKhata || !PakKhata.Sync){
+    console.warn('[SYNC-SHARES-FIX] PakKhata.Sync not ready — retry');
+    setTimeout(arguments.callee, 500);
+    return;
+  }
+
+  var DB_KEY = 'pak_khata_pro_v3';
+  var _shL = null;
+  var _subs = [];
+
+  function _sess(){ try { return getSession(); } catch(e){ return null; } }
+  function _key(u){ try { return safeUserKey(u); } catch(e){ return String(u).toLowerCase().replace(/[.#$/\[\]]/g,'_'); } }
+  function _db(){
+    try {
+      if (typeof firebase === 'undefined') return null;
+      if (!firebase.apps || !firebase.apps.length){
+        var url = (typeof getServerUrl === 'function') ? getServerUrl() : '';
+        if (!url) return null;
+        firebase.initializeApp({ databaseURL: url });
+      }
+      return firebase.database();
+    } catch(e){ return null; }
+  }
+  function _persist(){ try { if (window.appData) localStorage.setItem(DB_KEY, JSON.stringify(window.appData)); } catch(e){} }
+
+  var mergeProfiles = PakKhata.Sync.mergeProfiles;
+
+  function attachSharedListenerMerge(sp){
+    if (typeof firebase === 'undefined') return;
+    try {
+      var db = firebase.database();
+      var ref = db.ref('pak_khata_shared_profiles/' + _key(sp.__ownerUsername) + '/' + sp.__sourceProfileId);
+      ref.on('value', function(snap){
+        try {
+          var val = snap.val();
+          if (!val || !val.data) return;
+          var t = (window.appData.sharedProfiles||[]).find(function(x){ return String(x.__shareId) === String(sp.__shareId); });
+          if (!t) return;
+          if (val.lastModified === t.__remoteLastModified) return;
+
+          var m = mergeProfiles(t, val.data);
+          m.id = t.id; m.__shared = true; m.__role = t.__role;
+          m.__ownerUsername = t.__ownerUsername; m.__ownerName = t.__ownerName;
+          m.__sourceProfileId = t.__sourceProfileId; m.__shareId = t.__shareId;
+          m.__remoteLastModified = val.lastModified || 0;
+          if (typeof t.__active !== 'undefined') m.__active = t.__active;
+
+          var idx = window.appData.sharedProfiles.indexOf(t);
+          if (idx === -1) return;
+          window.appData.sharedProfiles[idx] = m;
+          _persist();
+          if (typeof renderAll === 'function'){ try { renderAll(); } catch(e){} }
+          if (typeof toast === 'function' && !window.__PK_EDIT_MODE) toast('🔄 Owner ne update kiya','ok');
+        } catch(e){ console.warn('[SYNC-SHARES-FIX] listener err:', e); }
+      });
+      _subs.push(ref);
+    } catch(e){}
+  }
+
+  async function syncSharesMergeSafe(shares){
+    var db = _db(); if (!db || !window.appData) return;
+    if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles = [];
+    var list = [];
+    for (var i = 0; i < shares.length; i++){
+      var s = shares[i];
+      try {
+        var snap = await db.ref('pak_khata_shared_profiles/' + _key(s.ownerUsername) + '/' + s.profileId).once('value');
+        var sp = snap.val();
+        if (!sp || !sp.data) continue;
+        var _prevP = (window.appData.sharedProfiles||[]).find(function(x){ return String(x.__shareId) === String(s.shareId); });
+
+        var c;
+        if (_prevP){
+          try {
+            c = mergeProfiles(_prevP, sp.data);
+            console.log('[SYNC-SHARES-FIX] Merged:', s.profileName,
+              '— local txns:', (_prevP.transactions||[]).length,
+              ', remote txns:', (sp.data.transactions||[]).length,
+              '→ merged:', (c.transactions||[]).length);
+          } catch(e){
+            c = JSON.parse(JSON.stringify(sp.data));
+            console.warn('[SYNC-SHARES-FIX] merge failed, using remote:', e);
+          }
+        } else {
+          c = JSON.parse(JSON.stringify(sp.data));
+        }
+
+        c.id = s.shareId; c.__shared = true; c.__role = s.role;
+        c.__ownerUsername = s.ownerUsername; c.__ownerName = s.ownerName;
+        c.__sourceProfileId = s.profileId; c.__shareId = s.shareId;
+        c.__remoteLastModified = sp.lastModified || 0;
+        c.__active = (_prevP && _prevP.__active !== undefined) ? _prevP.__active : (s.__enabled !== false);
+        list.push(c);
+      } catch(e){ console.warn('[SYNC-SHARES-FIX] fetch err:', e); }
+    }
+
+    window.appData.sharedProfiles = list;
+    _persist();
+
+    _subs.forEach(function(r){ try { r.off(); } catch(e){} });
+    _subs = [];
+    list.forEach(attachSharedListenerMerge);
+
+    try {
+      var _pending = window.appData.__activeSharedId;
+      if (_pending){
+        var _found = list.find(function(x){
+          return String(x.__shareId) === String(_pending) || String(x.id) === String(_pending);
+        });
+        if (_found && _found.__active !== false){
+          window.appData.activeProfileId = _found.id;
+          window.appData.__activeSharedId = String(_found.__shareId || _found.id);
+          if (window.PakKhata && PakKhata.ActiveProfile && PakKhata.ActiveProfile.persist){
+            try { PakKhata.ActiveProfile.persist(); } catch(e){}
+          }
+          console.log('[SYNC-SHARES-FIX] Restored shared active:', _found.name);
+        }
+      }
+    } catch(e){}
+
+    if (typeof renderAll === 'function'){ try { renderAll(); } catch(e){} }
+    if (typeof renderReceivedShares === 'function'){ try { renderReceivedShares(); } catch(e){} }
+    try { if (typeof PakKhata.Sync.attachOwnerListeners === 'function') PakKhata.Sync.attachOwnerListeners(); } catch(e){}
+  }
+
+  // Replace listenShares with merge-safe version
+  PakKhata.Sync.listenShares = function(){
+    if (typeof firebase === 'undefined') return;
+    var db = _db(); if (!db) return;
+    var sess = _sess(); if (!sess || !sess.username) return;
+    try {
+      if (_shL){ try { _shL.off(); } catch(e){} }
+      _shL = db.ref('pak_khata_shares/' + _key(sess.username));
+      _shL.on('value', function(snap){
+        var val = snap.val() || {};
+        var arr = Object.keys(val).map(function(k){ return val[k]; });
+        var rmv = (PakKhata.Sync.getRemoved && PakKhata.Sync.getRemoved()) || [];
+        arr = arr.filter(function(s){ return s && s.shareId && rmv.indexOf(String(s.shareId)) === -1; });
+        syncSharesMergeSafe(arr);
+      });
+      console.log('[SYNC-SHARES-FIX] ✅ listenShares replaced (merge-safe)');
+    } catch(e){ console.warn('[SYNC-SHARES-FIX] listenShares err:', e); }
+  };
+
+  // Also update global (backward compat)
+  window.initSharesSync = PakKhata.Sync.listenShares;
+
+  // On reconnection: flush shared profiles to cloud (owner's node)
+  window.addEventListener('online', function(){
+    setTimeout(async function(){
+      try {
+        if (!window.appData || !Array.isArray(window.appData.sharedProfiles)) return;
+        var db = _db(); if (!db) return;
+        var sess = _sess(); if (!sess || !sess.username) return;
+
+        var pushed = 0;
+        for (var i = 0; i < window.appData.sharedProfiles.length; i++){
+          var sp = window.appData.sharedProfiles[i];
+          if (!sp.__shared || !sp.__ownerUsername || !sp.__sourceProfileId) continue;
+          if (typeof getPerm === 'function' && !getPerm('edit')) continue;
+
+          try {
+            var clean = JSON.parse(JSON.stringify(sp));
+            delete clean.__shared; delete clean.__role; delete clean.__ownerUsername;
+            delete clean.__ownerName; delete clean.__sourceProfileId; delete clean.__shareId;
+            delete clean.__remoteLastModified; delete clean.__active;
+
+            await db.ref('pak_khata_shared_profiles/' + _key(sp.__ownerUsername) + '/' + sp.__sourceProfileId)
+              .update({
+                data: clean,
+                lastModified: Date.now(),
+                lastEditor: sess.username
+              });
+            pushed++;
+          } catch(e){ console.warn('[SYNC-SHARES-FIX] shared flush err for', sp.name, ':', e); }
+        }
+        if (pushed > 0){
+          console.log('[SYNC-SHARES-FIX] ✅ Flushed ' + pushed + ' shared profile(s) to cloud');
+        }
+      } catch(e){ console.warn('[SYNC-SHARES-FIX] online-flush err:', e); }
+    }, 3500);
+  });
+
+  console.log('[SYNC-SHARES-FIX] ✅ Ready — shared sync merge-safe + online-flush active');
+})();
+</script>
+<!-- ============ SYNC-SHARES-MERGE-FIX END ============ -->
 </body>
 </html>
