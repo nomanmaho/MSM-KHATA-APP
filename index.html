@@ -11516,5 +11516,159 @@ if (!Array.isArray(window.appData.sharedProfiles)) window.appData.sharedProfiles
 })();
 </script>
 <!-- ============ Debug Console Menu Tile END ============ -->
+<!-- ============ CHEQUE SYNC FIX (__v bump) ============ -->
+<script>
+(function(){
+  if (window.__PK_CHEQUE_SYNC_FIX) return;
+  window.__PK_CHEQUE_SYNC_FIX = true;
+  console.log('[CHEQUE-SYNC-FIX] Loading...');
+
+  var PakKhata = window.PakKhata = window.PakKhata || {};
+  var Features = PakKhata.Features = PakKhata.Features || {};
+  var Cheque = Features.Cheque;
+  if (!Cheque){ console.warn('[CHEQUE-SYNC-FIX] Cheque module missing!'); return; }
+
+  var DB_KEY = 'pak_khata_pro_v3';
+
+  function _cp(){ try { return (typeof getCurrentProfile === 'function') ? getCurrentProfile() : null; } catch(e){ return null; } }
+  function _toast(m,k){ try { if (typeof toast === 'function') toast(m,k); } catch(e){} }
+  function _money(v){ try { return (typeof money === 'function') ? money(v) : v; } catch(e){ return v; } }
+
+  // ✅ Full save: lastModified + save() + immediate push
+  function fullSave(){
+    try {
+      if (window.appData) window.appData.lastModified = Date.now();
+      if (typeof save === 'function'){ save(); }
+      else {
+        localStorage.setItem(DB_KEY, JSON.stringify(window.appData));
+        if (typeof renderAll === 'function'){ try { renderAll(); } catch(e){} }
+      }
+      // Force immediate push (schedulePush is 80ms delay — reload se bachne ke liye)
+      if (window.PakKhata && PakKhata.Sync && typeof PakKhata.Sync.push === 'function'){
+        try { PakKhata.Sync.push(); } catch(e){}
+      }
+    } catch(e){
+      try { localStorage.setItem(DB_KEY, JSON.stringify(window.appData)); } catch(err){}
+    }
+  }
+
+  var _origCreate = Cheque.createClearanceTransfer;
+  var _origDelete = Cheque.deleteClearanceTransfer;
+
+  function clearChequeFixed(id){
+    var cp = _cp(); if (!cp) return;
+    var tx = cp.transactions.find(function(x){ return String(x.id) === String(id); });
+    if (!tx) return;
+    if (tx.chequeStatus === 'cleared'){ _toast('Already cleared', 'warn'); return; }
+
+    var chequeBank = cp.banks.find(function(b){ return String(b.id) === String(tx.bankId); });
+    if (!chequeBank){ _toast('Cheque account not found', 'err'); return; }
+
+    var linkedBank = null;
+    if (chequeBank.linkedBankId){
+      linkedBank = cp.banks.find(function(b){ return String(b.id) === String(chequeBank.linkedBankId); });
+    }
+
+    var msg = 'Cheque CLEARED mark karein?\n\n#' + (tx.chequeNumber || '—') + ' — ' + _money(tx.amount);
+    if (linkedBank){
+      var dir = tx.chequeDirection || 'issued';
+      msg += '\n\n🔁 Auto Transfer:\n' + (dir === 'received'
+        ? '📥 ' + chequeBank.name + '  →  ' + linkedBank.name
+        : '📤 ' + linkedBank.name + '  →  ' + chequeBank.name);
+    } else {
+      msg += '\n\n⚠️ Linked bank set nahi — sirf status update hoga.';
+    }
+    if (!confirm(msg)) return;
+
+    tx.chequeStatus = 'cleared';
+    tx.clearedAt = Date.now();
+    tx.__v = Date.now();  // ✅ CRITICAL FIX — version bump
+
+    if (linkedBank && _origCreate){
+      var transfer = _origCreate(tx, chequeBank, linkedBank);
+      if (transfer){
+        transfer.__v = Date.now();
+        tx.__clearedTransferId = transfer.id;
+      }
+    }
+
+    fullSave();
+    if (Cheque.renderRegister) Cheque.renderRegister();
+    _toast('✅ Cleared' + (linkedBank ? ' + transfer' : ''), 'ok');
+  }
+
+  function bounceChequeFixed(id){
+    var cp = _cp(); if (!cp) return;
+    var tx = cp.transactions.find(function(x){ return String(x.id) === String(id); });
+    if (!tx) return;
+
+    var wasCleared = (tx.chequeStatus === 'cleared');
+    var hadTransfer = wasCleared && (tx.__clearedTransferId ||
+      cp.transactions.some(function(t){ return t.isAutoTransfer && String(t.linkedChequeId) === String(tx.id); }));
+
+    var msg = 'Cheque BOUNCED mark karein?\n\n#' + (tx.chequeNumber || '—') + ' — ' + _money(tx.amount);
+    if (hadTransfer) msg += '\n\n⚠️ Linked transfer reverse ho jayega.';
+    if (!confirm(msg)) return;
+
+    if (hadTransfer && _origDelete) _origDelete(tx);
+
+    tx.chequeStatus = 'bounced';
+    tx.bouncedAt = Date.now();
+    tx.__v = Date.now();  // ✅ FIX
+    delete tx.clearedAt;
+
+    fullSave();
+    if (Cheque.renderRegister) Cheque.renderRegister();
+    _toast(hadTransfer ? '❌ Bounced + reversed' : '❌ Bounced', 'warn');
+  }
+
+  function reopenChequeFixed(id){
+    var cp = _cp(); if (!cp) return;
+    var tx = cp.transactions.find(function(x){ return String(x.id) === String(id); });
+    if (!tx) return;
+
+    var wasCleared = (tx.chequeStatus === 'cleared');
+    var hadTransfer = wasCleared && (tx.__clearedTransferId ||
+      cp.transactions.some(function(t){ return t.isAutoTransfer && String(t.linkedChequeId) === String(tx.id); }));
+
+    var msg = 'Cheque wapas PENDING karein?';
+    if (hadTransfer) msg += '\n\n⚠️ Linked transfer reverse ho jayega.';
+    if (!confirm(msg)) return;
+
+    if (hadTransfer && _origDelete) _origDelete(tx);
+
+    tx.chequeStatus = 'pending';
+    tx.__v = Date.now();  // ✅ FIX
+    delete tx.clearedAt;
+    delete tx.bouncedAt;
+
+    fullSave();
+    if (Cheque.renderRegister) Cheque.renderRegister();
+    _toast('⏳ Reopened', 'ok');
+  }
+
+  // Override Cheque module methods (register buttons use these)
+  Cheque.clearCheque = clearChequeFixed;
+  Cheque.bounceCheque = bounceChequeFixed;
+  Cheque.reopenCheque = reopenChequeFixed;
+  window.pk_clearCheque = clearChequeFixed;
+  window.pk_bounceCheque = bounceChequeFixed;
+  window.pk_reopenCheque = reopenChequeFixed;
+
+  // ✅ Wrap createClearanceTransfer to auto-stamp __v
+  if (_origCreate && !_origCreate.__pkSynced){
+    var wrapped = function(tx, chequeBank, linkedBank){
+      var t = _origCreate(tx, chequeBank, linkedBank);
+      if (t) t.__v = Date.now();
+      return t;
+    };
+    wrapped.__pkSynced = true;
+    Cheque.createClearanceTransfer = wrapped;
+  }
+
+  console.log('[CHEQUE-SYNC-FIX] ✅ Ready — clear/bounce/reopen now bump __v + push');
+})();
+</script>
+<!-- ============ CHEQUE SYNC FIX END ============ -->
 </body>
 </html>
